@@ -11,7 +11,7 @@
     "dev:renderer": "vite --host 127.0.0.1",
     "build": "vite build",
     "start": "electron .",
-    "dist:win": "npm run build && electron-builder --win nsis",
+    "dist:win": "npm run build && electron-builder --win nsis && node scripts/copy-latest-release.js",
     "rebuild": "cd node_modules/better-sqlite3 && npx prebuild-install --runtime electron --target 37.10.3"
   },
   "dependencies": {

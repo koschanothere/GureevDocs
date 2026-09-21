@@ -1,6 +1,6 @@
 {
   "name": "gureevdoc",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "description": "Офлайн-реестр строительных объектов, договоров и документов",
   "main": "src/main/main.js",
   "private": true,

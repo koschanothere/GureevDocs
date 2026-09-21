@@ -12,6 +12,7 @@ import {
   FilePlus2,
   FileText,
   FolderTree,
+  Menu,
   Plus,
   ReceiptText,
   Save,
@@ -125,6 +126,8 @@ function sortArrow(sort) {
   return sort.direction === "asc" ? "↑" : "↓";
 }
 
+const SIDEBAR_COLLAPSE_WIDTH = 1100;
+
 function App() {
   const [view, setView] = useState("objects");
   const [objects, setObjects] = useState([]);
@@ -134,6 +137,25 @@ function App() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [businessFilter, setBusinessFilter] = useState("all");
+  const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < SIDEBAR_COLLAPSE_WIDTH);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= SIDEBAR_COLLAPSE_WIDTH);
+
+  useEffect(() => {
+    const query = window.matchMedia(`(max-width: ${SIDEBAR_COLLAPSE_WIDTH - 1}px)`);
+    function handleChange(event) {
+      setIsNarrow(event.matches);
+      setSidebarOpen(!event.matches);
+    }
+    query.addEventListener("change", handleChange);
+    return () => query.removeEventListener("change", handleChange);
+  }, []);
+
+  function closeSidebarIfNarrow() {
+    if (isNarrow) setSidebarOpen(false);
+  }
+
+  const sidebarMode = !sidebarOpen ? "collapsed" : isNarrow ? "overlay" : "docked";
+  const showSidebar = isNarrow || sidebarOpen;
 
   async function loadObjects() {
     try {
@@ -217,51 +239,65 @@ function App() {
 
   const businessModeLabel = businessFilter === "all" ? "" : ` · ${businessTypeLabels[businessFilter]}`;
   const themeMode = view === "registry" ? "all" : businessFilter;
+  const selectedObject = objects.find((object) => object.id === selectedObjectId);
 
   return (
-    <div className="app-shell" data-business-mode={themeMode}>
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark"><Building2 size={20} /></div>
-          <div>
-            <strong>GureevDoc</strong>
-            <span>локальный реестр</span>
-          </div>
-        </div>
-        <nav className="nav">
-          <button className={view === "objects" && businessFilter === "all" ? "active" : ""} onClick={() => openObjects("all")}>
-            <Building2 size={18} /> Объекты
-          </button>
-          <button className={view === "registry" ? "active" : ""} onClick={() => setView("registry")}>
-            <ClipboardList size={18} /> Реестр документов
-          </button>
-        </nav>
-        <nav className="nav business-nav">
-          <button className={view === "objects" && businessFilter === "ooo" ? "active biztype-ooo" : "biztype-ooo"} onClick={() => openObjects("ooo")}>
-            <span className="biztype-dot ooo" /> ООО
-          </button>
-          <button className={view === "objects" && businessFilter === "ip" ? "active biztype-ip" : "biztype-ip"} onClick={() => openObjects("ip")}>
-            <span className="biztype-dot ip" /> ИП
-          </button>
-        </nav>
-        <button className="primary-action" onClick={() => setWizard({ businessType: businessFilter !== "all" ? businessFilter : undefined })}>
-          <Plus size={18} /> Добавить документ
+    <div className="app-shell" data-business-mode={themeMode} data-sidebar={sidebarMode}>
+      {!sidebarOpen && (
+        <button className="sidebar-reveal" title="Показать меню" onClick={() => setSidebarOpen(true)}>
+          <Menu size={20} />
         </button>
-        <div className="sidebar-actions">
-          <button className="ghost-button" onClick={handleExport}>
-            <Download size={16} /> Экспорт
+      )}
+      {isNarrow && sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
+      {showSidebar && (
+        <aside className={`sidebar${isNarrow ? " sidebar-overlay" : ""}${sidebarOpen ? " sidebar-open" : ""}`}>
+          <div className="brand">
+            <div className="brand-mark"><Building2 size={20} /></div>
+            <div>
+              <strong>GureevDoc</strong>
+              <span>локальный реестр</span>
+            </div>
+            <button className="icon-button sidebar-close" title="Свернуть меню" onClick={() => setSidebarOpen(false)}>
+              <Menu size={16} />
+            </button>
+          </div>
+          <nav className="nav">
+            <button className={view === "objects" && businessFilter === "all" ? "active" : ""} onClick={() => { openObjects("all"); closeSidebarIfNarrow(); }}>
+              <Building2 size={18} /> Объекты
+            </button>
+            <button className={view === "registry" ? "active" : ""} onClick={() => { setView("registry"); closeSidebarIfNarrow(); }}>
+              <ClipboardList size={18} /> Реестр
+            </button>
+          </nav>
+          <nav className="nav business-nav">
+            <button className={view === "objects" && businessFilter === "ooo" ? "active biztype-ooo" : "biztype-ooo"} onClick={() => { openObjects("ooo"); closeSidebarIfNarrow(); }}>
+              <span className="biztype-dot ooo" /> ООО
+            </button>
+            <button className={view === "objects" && businessFilter === "ip" ? "active biztype-ip" : "biztype-ip"} onClick={() => { openObjects("ip"); closeSidebarIfNarrow(); }}>
+              <span className="biztype-dot ip" /> ИП
+            </button>
+          </nav>
+          <button className="primary-action" onClick={() => { setWizard({ businessType: businessFilter !== "all" ? businessFilter : undefined }); closeSidebarIfNarrow(); }}>
+            <Plus size={18} /> Добавить документ
           </button>
-          <button className="ghost-button" onClick={handleImport}>
-            <Upload size={16} /> Импорт
-          </button>
-        </div>
-      </aside>
+          <div className="sidebar-actions">
+            <button className="ghost-button" onClick={handleExport}>
+              <Download size={16} /> Экспорт
+            </button>
+            <button className="ghost-button" onClick={handleImport}>
+              <Upload size={16} /> Импорт
+            </button>
+          </div>
+        </aside>
+      )}
 
       <main className="workspace">
-        <header className="topbar">
+        <header className={`topbar${!sidebarOpen ? " topbar-indent" : ""}`}>
           <div>
-            <h1>{view === "registry" ? "Глобальный реестр документов" : view === "object" ? "Карточка объекта" : `Объекты${businessModeLabel}`}</h1>
-            <p>{view === "registry" ? "Плоская ведомость первичных и вторичных документов" : "Учёт объектов, договоров и закрывающих документов"}</p>
+            <h1>{view === "registry" ? "Глобальный реестр документов" : view === "object" ? (selectedObject?.name || "Объект") : `Объекты${businessModeLabel}`}</h1>
+            {view !== "object" && (
+              <p>{view === "registry" ? "Плоская ведомость первичных и вторичных документов" : "Учёт объектов, договоров и закрывающих документов"}</p>
+            )}
           </div>
           <button className="icon-button filled" title="Добавить документ" onClick={() => setWizard({ objectId: selectedObjectId, businessType: businessFilter !== "all" ? businessFilter : undefined })}>
             <FilePlus2 size={20} />
@@ -582,34 +618,40 @@ function ObjectDetails({ objectId, businessFilter, refreshKey, onBack, onOpenWiz
           <button className="text-button" onClick={() => onOpenWizard({ objectId: details.id, businessType: businessFilter !== "all" ? businessFilter : undefined })}><Plus size={16} /> Документ</button>
         </div>
         <form className="object-form" onSubmit={saveObject}>
-          <label>
-            Название объекта
-            <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-          </label>
-          <label>
-            Заказчик
-            <input value={form.customer} onChange={(event) => setForm({ ...form, customer: event.target.value })} />
-          </label>
-          <label className="wide">
-            Адрес
-            <input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} />
-          </label>
-          <label>
-            Дата создания папки
-            <input type="date" value={form.folder_created_date || ""} onChange={(event) => setForm({ ...form, folder_created_date: event.target.value })} />
-          </label>
-          <label>
-            Тип объекта
-            <div className="segmented business-segmented">
-              <button type="button" className={form.is_ooo ? "active biztype-ooo" : ""} onClick={() => setForm({ ...form, is_ooo: !form.is_ooo })}>ООО</button>
-              <button type="button" className={form.is_ip ? "active biztype-ip" : ""} onClick={() => setForm({ ...form, is_ip: !form.is_ip })}>ИП</button>
-            </div>
-          </label>
-          <label className="wide">
-            Комментарий
-            <textarea value={form.comment || ""} onChange={(event) => setForm({ ...form, comment: event.target.value })} rows={3} />
-          </label>
-          <button className="text-button fit" type="submit"><Save size={16} /> Сохранить карточку</button>
+          <div className="form-row">
+            <label>
+              Название объекта
+              <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+            </label>
+            <label>
+              Заказчик
+              <input value={form.customer} onChange={(event) => setForm({ ...form, customer: event.target.value })} />
+            </label>
+          </div>
+          <div className="form-row">
+            <label className="field-wide">
+              Адрес
+              <input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} />
+            </label>
+            <label>
+              Дата создания папки
+              <input type="date" value={form.folder_created_date || ""} onChange={(event) => setForm({ ...form, folder_created_date: event.target.value })} />
+            </label>
+            <label>
+              Тип объекта
+              <div className="segmented business-segmented">
+                <button type="button" className={form.is_ooo ? "active biztype-ooo" : ""} onClick={() => setForm({ ...form, is_ooo: !form.is_ooo })}>ООО</button>
+                <button type="button" className={form.is_ip ? "active biztype-ip" : ""} onClick={() => setForm({ ...form, is_ip: !form.is_ip })}>ИП</button>
+              </div>
+            </label>
+          </div>
+          <div className="form-row">
+            <label className="field-wide">
+              Комментарий
+              <textarea value={form.comment || ""} onChange={(event) => setForm({ ...form, comment: event.target.value })} rows={2} />
+            </label>
+            <button className="text-button fit" type="submit"><Save size={16} /> Сохранить карточку</button>
+          </div>
         </form>
       </section>
 
@@ -656,9 +698,9 @@ function ObjectDetails({ objectId, businessFilter, refreshKey, onBack, onOpenWiz
               <article className="tree-item" key={contract.id}>
                 <div className="contract-row">
                   <button className="icon-button" title={isOpen ? "Свернуть" : "Развернуть"} onClick={() => toggleContract(contract.id)}>
-                    {isOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                    {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                   </button>
-                  <FileText size={18} className="row-icon" />
+                  <FileText size={16} className="row-icon" />
                   <EditableValue
                     type="select"
                     value={contract.business_type || ""}
@@ -714,7 +756,7 @@ function ObjectDetails({ objectId, businessFilter, refreshKey, onBack, onOpenWiz
                   <div className="row-actions">
                     <FileCell document={contract} onReplace={() => replaceDocumentFile(contract, updateContract)} />
                     <button className="icon-button danger" title="Удалить договор" onClick={() => deleteContract(contract.id)}>
-                      <Trash2 size={16} />
+                      <Trash2 size={15} />
                     </button>
                   </div>
                 </div>
@@ -794,7 +836,7 @@ function ProposalList({ proposals, onUpdate, onDelete, onCreateContract, onRepla
       </div>
       {proposals.map((proposal) => (
         <div className="proposal-row" key={proposal.id}>
-          <FileInput size={18} className="row-icon" />
+          <FileInput size={16} className="row-icon" />
           <EditableValue
             type="select"
             value={proposal.business_type || ""}
@@ -1029,9 +1071,9 @@ function AnnexList({ annexes, sort, onSort, expandedAnnexes, onToggleAnnex, onUp
           <div className="annex-block" key={annex.id}>
             <div className="annex-row">
               <button className="icon-button" onClick={() => onToggleAnnex(annex.id)} title={annexOpen ? "Свернуть" : "Развернуть"}>
-                {annexOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                {annexOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               </button>
-              <FileArchive size={17} className="row-icon" />
+              <FileArchive size={15} className="row-icon" />
               <BusinessBadge value={annex.business_type} className="row-biztype" />
               <span className="strong-cell">ДС {annex.id}</span>
               <EditableValue

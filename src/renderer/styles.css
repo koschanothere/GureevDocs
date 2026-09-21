@@ -17,6 +17,8 @@
   --ooo-color-dark: #9c3b46;
   --ip-color: #06402b;
   --ip-color-dark: #03301f;
+
+  --sidebar-width: 200px;
 }
 
 .app-shell[data-business-mode="ooo"] {
@@ -86,8 +88,36 @@ button:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 204px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   min-height: 100vh;
+}
+
+.app-shell[data-sidebar="docked"] {
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+}
+
+.sidebar-reveal {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 80;
+  display: inline-grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 2px 10px rgb(27 36 48 / 0.16);
+}
+
+.sidebar-reveal:hover {
+  border-color: var(--line);
+}
+
+.topbar-indent {
+  padding-left: 42px;
 }
 
 .sidebar {
@@ -102,18 +132,45 @@ button:disabled {
   background: #f6f6f1;
 }
 
+.sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 70;
+  width: min(var(--sidebar-width), 78vw);
+  transform: translateX(-100%);
+  box-shadow: 6px 0 22px rgb(27 36 48 / 0.2);
+  transition: transform 0.18s ease;
+}
+
+.sidebar-overlay.sidebar-open {
+  transform: translateX(0);
+}
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgb(27 36 48 / 0.32);
+}
+
+.sidebar-close {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--line-soft);
 }
 
 .brand-mark {
   display: grid;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   place-items: center;
   border: 1px solid var(--accent);
   border-radius: 4px;
@@ -260,9 +317,9 @@ button:disabled {
 
 .icon-button {
   display: inline-grid;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   place-items: center;
   border-color: var(--line-soft);
   background: var(--surface);
@@ -285,6 +342,7 @@ button:disabled {
 }
 
 .workspace {
+  container: workspace / inline-size;
   min-width: 0;
   padding: 26px 30px 40px;
 }
@@ -331,8 +389,7 @@ button:disabled {
   font-weight: 700;
 }
 
-.inline-form,
-.object-form {
+.inline-form {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) minmax(160px, 0.8fr) minmax(220px, 1.2fr) minmax(180px, 1fr) auto;
   gap: 12px;
@@ -341,17 +398,37 @@ button:disabled {
   background: #fbfbf8;
 }
 
-.object-form {
-  grid-template-columns: minmax(260px, 1fr) 210px;
-  align-items: end;
-}
-
-.object-form .wide {
-  grid-column: 1 / -1;
-}
-
 .inline-form .wide {
   grid-column: span 2;
+}
+
+.object-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-bottom: 1px solid var(--line-soft);
+  background: #fbfbf8;
+}
+
+.form-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+
+.form-row > label {
+  flex: 1 1 190px;
+  min-width: 0;
+}
+
+.form-row > label.field-wide {
+  flex: 2 1 260px;
+}
+
+.form-row > button {
+  flex: 0 0 auto;
 }
 
 .field-note {
@@ -411,8 +488,8 @@ textarea:focus {
 
 .data-table th,
 .data-table td {
-  height: 46px;
-  padding: 9px 12px;
+  height: 36px;
+  padding: 5px 10px;
   border-bottom: 1px solid var(--line-soft);
   text-align: left;
   vertical-align: middle;
@@ -485,6 +562,7 @@ textarea:focus {
 
 .object-layout {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
 }
 
@@ -516,11 +594,13 @@ textarea:focus {
 
 .accordion-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   overflow-x: auto;
 }
 
 .proposal-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   overflow-x: auto;
 }
 
@@ -529,13 +609,13 @@ textarea:focus {
   display: grid;
   grid-template-columns: 20px 74px minmax(130px, 1fr) 92px minmax(120px, 0.85fr) 64px 108px minmax(120px, 1fr) minmax(120px, 1fr) minmax(180px, auto);
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 1030px;
-  padding: 6px 10px;
+  padding: 4px 10px;
 }
 
 .proposal-header {
-  min-height: 32px;
+  min-height: 26px;
   border-bottom: 1px solid var(--line-soft);
   background: #f7f7f3;
   color: #405048;
@@ -544,7 +624,7 @@ textarea:focus {
 }
 
 .proposal-row {
-  min-height: 44px;
+  min-height: 36px;
   border-bottom: 1px solid var(--line-soft);
 }
 
@@ -565,10 +645,10 @@ textarea:focus {
   display: grid;
   grid-template-columns: 28px 18px 74px minmax(150px, 1.2fr) 92px minmax(130px, 0.8fr) 64px 108px 96px minmax(110px, 0.8fr) minmax(76px, 0.8fr) minmax(160px, 1fr);
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 1250px;
-  min-height: 44px;
-  padding: 6px 10px;
+  min-height: 36px;
+  padding: 4px 10px;
 }
 
 .annex-row {
@@ -579,10 +659,10 @@ textarea:focus {
 .annex-header {
   display: grid;
   grid-template-columns: 28px 18px 74px minmax(110px, 1fr) 92px minmax(130px, 0.9fr) 64px 108px 96px minmax(110px, 0.8fr) minmax(150px, 1fr) 34px;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
   min-width: 1150px;
-  min-height: 32px;
+  min-height: 26px;
   padding: 0 10px;
   border-bottom: 1px solid var(--line-soft);
   background: #f7f7f3;
@@ -635,6 +715,7 @@ textarea:focus {
 .nested-list,
 .secondary-table {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 
@@ -659,8 +740,8 @@ textarea:focus {
 
 .compact-table th,
 .compact-table td {
-  height: 34px;
-  padding: 5px 9px;
+  height: 30px;
+  padding: 4px 8px;
 }
 
 .empty-state,
@@ -675,8 +756,8 @@ textarea:focus {
   align-items: center;
   justify-content: center;
   min-width: 74px;
-  min-height: 22px;
-  padding: 2px 6px;
+  min-height: 19px;
+  padding: 1px 6px;
   border-radius: 4px;
   font-size: 11.5px;
   font-weight: 700;
@@ -713,11 +794,11 @@ textarea:focus {
 .comment-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 22px;
+  min-height: 19px;
   width: fit-content;
   max-width: 150px;
   overflow: hidden;
-  padding: 2px 7px;
+  padding: 1px 7px;
   border-radius: 4px;
   font-size: 11.5px;
   font-weight: 700;
@@ -742,8 +823,8 @@ textarea:focus {
   align-items: center;
   justify-content: center;
   min-width: 60px;
-  min-height: 22px;
-  padding: 2px 7px;
+  min-height: 19px;
+  padding: 1px 7px;
   border-radius: 4px;
   font-size: 11.5px;
   font-weight: 700;
@@ -813,12 +894,12 @@ textarea:focus {
   align-items: center;
   justify-content: flex-start;
   width: 100%;
-  min-height: 24px;
+  min-height: 20px;
   min-width: 0;
   overflow: hidden;
   border: 1px solid transparent;
   border-radius: 4px;
-  padding: 2px 4px;
+  padding: 1px 4px;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -838,8 +919,8 @@ textarea:focus {
 }
 
 .edit-control {
-  min-height: 30px;
-  padding: 4px 7px;
+  min-height: 26px;
+  padding: 3px 7px;
   font-size: 13px;
 }
 
@@ -1050,45 +1131,132 @@ textarea:focus {
   font-weight: 700;
 }
 
-@media (max-width: 980px) {
-  .app-shell {
-    grid-template-columns: 1fr;
+@media (max-width: 700px) {
+  .wizard-grid,
+  .choice-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
+}
 
-  .sidebar {
-    position: static;
-    height: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .nav {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .primary-action {
-    margin-top: 0;
-  }
-
+/*
+ * Density steps for the workspace content, keyed to the width actually
+ * available next to the sidebar (not the window width) so a docked sidebar
+ * and a collapsed one squeeze the tables at the right moment.
+ */
+@container workspace (max-width: 900px) {
   .workspace {
-    padding: 18px;
+    padding: 18px 16px 28px;
+  }
+
+  .topbar {
+    margin-bottom: 16px;
+  }
+
+  .topbar h1 {
+    font-size: 24px;
+  }
+
+  .panel-toolbar {
+    min-height: 48px;
+    padding: 10px 12px;
   }
 
   .inline-form,
-  .object-form,
   .registry-filters,
-  .wizard-grid,
+  .wizard-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .form-row > label {
+    flex-basis: 160px;
+  }
+
   .choice-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .data-table {
+    min-width: 860px;
+  }
+
+  .data-table th,
+  .data-table td {
+    height: 40px;
+    padding: 7px 9px;
+    font-size: 13px;
+  }
+
+  .compact-table {
+    min-width: 860px;
+  }
+
+  .compact-table th,
+  .compact-table td {
+    height: 30px;
+    padding: 4px 7px;
+  }
+
+  .proposal-header,
+  .proposal-row {
+    grid-template-columns: 18px 58px minmax(96px, 1fr) 78px minmax(94px, 0.85fr) 50px 86px minmax(96px, 1fr) minmax(96px, 1fr) minmax(140px, auto);
+    min-width: 800px;
+    gap: 6px;
+    padding: 5px 8px;
   }
 
   .contract-row,
-  .annex-row {
-    grid-template-columns: 32px 20px minmax(130px, 1fr);
+  .annex-row,
+  .annex-header {
+    gap: 6px;
+    padding: 5px 8px;
   }
 
-  .contract-row > *,
-  .annex-row > * {
-    min-width: 0;
+  .contract-row {
+    grid-template-columns: 24px 16px 58px minmax(116px, 1.2fr) 78px minmax(96px, 0.8fr) 50px 86px 76px minmax(88px, 0.8fr) minmax(62px, 0.8fr) minmax(116px, 1fr);
+    min-width: 960px;
+  }
+
+  .annex-row,
+  .annex-header {
+    grid-template-columns: 24px 16px 58px minmax(92px, 1fr) 78px minmax(96px, 0.9fr) 50px 86px 76px minmax(88px, 0.8fr) minmax(108px, 1fr) 28px;
+    min-width: 900px;
+  }
+}
+
+@container workspace (max-width: 620px) {
+  .workspace {
+    padding: 14px 12px 22px;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .topbar h1 {
+    font-size: 20px;
+  }
+
+  .topbar p {
+    font-size: 13px;
+  }
+
+  .panel-toolbar {
+    flex-wrap: wrap;
+    height: auto;
+  }
+
+  .registry-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .choice-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sort-strip button {
+    min-height: 28px;
+    padding: 4px 7px;
+    font-size: 12px;
   }
 }

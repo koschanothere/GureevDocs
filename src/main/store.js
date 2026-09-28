@@ -15,7 +15,7 @@ const TABLE_COLUMNS = {
   objects: ["id", "name", "customer", "address", "comment", "folder_created_date", "is_ooo", "is_ip", "created_at"],
   commercial_proposals: ["id", "object_id", "number", "date", "amount", "status", "business_type", "advance_percent", "comment", "file_path", "original_filename", "created_at"],
   contracts: ["id", "object_id", "number", "date", "amount", "status", "payment_status", "partial_payment_amount", "business_type", "advance_percent", "comment", "comment_color", "file_path", "original_filename", "created_at"],
-  annexes: ["id", "contract_id", "date", "amount", "status", "payment_status", "partial_payment_amount", "advance_percent", "file_path", "original_filename", "created_at"],
+  annexes: ["id", "contract_id", "number", "date", "amount", "status", "payment_status", "partial_payment_amount", "advance_percent", "file_path", "original_filename", "created_at"],
   secondary_documents: ["id", "parent_type", "parent_id", "doc_type", "number", "date", "amount", "status", "payment_status", "partial_payment_amount", "file_path", "original_filename", "created_at"],
 };
 const FILE_TABLES = ["commercial_proposals", "contracts", "annexes", "secondary_documents"];
@@ -112,7 +112,7 @@ function createStore(userDataPath) {
       result.comment = result.comment || "";
     }
 
-    if (table === "contracts" || table === "commercial_proposals" || table === "secondary_documents") {
+    if (table === "contracts" || table === "commercial_proposals" || table === "annexes" || table === "secondary_documents") {
       result.number = result.number || "";
     }
 
@@ -333,11 +333,11 @@ function createStore(userDataPath) {
 
       db.prepare(`
         INSERT INTO annexes
-          (id, contract_id, date, amount, status, payment_status, partial_payment_amount, file_path, original_filename, created_at)
+          (id, contract_id, number, date, amount, status, payment_status, partial_payment_amount, file_path, original_filename, created_at)
         VALUES
-          (1, 1, '2026-08-02', 1260000, 'approved', 'paid', NULL, NULL, NULL, @created_1),
-          (2, 3, '2026-09-05', 850000, 'pending', 'partial', 300000, NULL, 'ds-materialy.pdf', @created_2),
-          (3, 4, '2026-09-14', 420000, 'not_sent', 'unpaid', NULL, NULL, 'ds-avans.pdf', @created_3)
+          (1, 1, '1', '2026-08-02', 1260000, 'approved', 'paid', NULL, NULL, NULL, @created_1),
+          (2, 3, '1', '2026-09-05', 850000, 'pending', 'partial', 300000, NULL, 'ds-materialy.pdf', @created_2),
+          (3, 4, '1', '2026-09-14', 420000, 'not_sent', 'unpaid', NULL, NULL, 'ds-avans.pdf', @created_3)
       `).run({
         created_1: createdAt("2026-08-02"),
         created_2: createdAt("2026-09-05"),
@@ -621,14 +621,18 @@ function createStore(userDataPath) {
 
   function createAnnex(payload) {
     assertEnum(payload.status, APPROVAL_STATUSES, "status");
+    const contract = db.prepare("SELECT object_id FROM contracts WHERE id = ?").get(payload.contract_id);
+    if (!contract) throw new Error("Договор не найден");
+    const number = String(payload.number ?? "").trim() || nextAnnexNumber(db, contract.object_id);
     const file = storeFile(payload.sourceFilePath, payload.original_filename);
     const info = db.prepare(`
       INSERT INTO annexes
-        (contract_id, date, amount, status, payment_status, partial_payment_amount, advance_percent, file_path, original_filename, created_at)
+        (contract_id, number, date, amount, status, payment_status, partial_payment_amount, advance_percent, file_path, original_filename, created_at)
       VALUES
-        (@contract_id, @date, @amount, @status, 'unpaid', NULL, @advance_percent, @file_path, @original_filename, @created_at)
+        (@contract_id, @number, @date, @amount, @status, 'unpaid', NULL, @advance_percent, @file_path, @original_filename, @created_at)
     `).run({
       contract_id: payload.contract_id,
+      number,
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
       status: payload.status,
@@ -646,7 +650,8 @@ function createStore(userDataPath) {
     const file = replaceStoredFile(current, payload);
     db.prepare(`
       UPDATE annexes
-      SET date = @date,
+      SET number = @number,
+          date = @date,
           amount = @amount,
           status = @status,
           advance_percent = @advance_percent,
@@ -655,6 +660,7 @@ function createStore(userDataPath) {
       WHERE id = @id
     `).run({
       id: payload.id,
+      number: payload.number !== undefined ? String(payload.number ?? "").trim() : current.number,
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
       status: payload.status,
@@ -802,6 +808,7 @@ function createStore(userDataPath) {
       insertRows("contracts", contracts);
       insertRows("annexes", annexes);
       insertRows("secondary_documents", secondaryDocuments);
+      backfillAnnexNumbers(db);
 
       counts = {
         objects: objects.length,
@@ -922,9 +929,9 @@ function createStore(userDataPath) {
           c.id AS contract_id,
           c.number AS contract_number,
           a.id AS annex_id,
-          'ДС ' || a.id AS annex_label,
+          TRIM('ДС ' || a.number) AS annex_label,
           'annex' AS doc_type,
-          CAST(a.id AS TEXT) AS document_number,
+          a.number AS document_number,
           'primary' AS category,
           c.business_type,
           a.date,
@@ -974,7 +981,7 @@ function createStore(userDataPath) {
           c.id AS contract_id,
           c.number AS contract_number,
           a.id AS annex_id,
-          'ДС ' || a.id AS annex_label,
+          TRIM('ДС ' || a.number) AS annex_label,
           sd.doc_type,
           sd.number AS document_number,
           'secondary' AS category,
@@ -1083,6 +1090,7 @@ function migrate(db) {
     CREATE TABLE IF NOT EXISTS annexes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       contract_id INTEGER NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+      number TEXT NOT NULL DEFAULT '',
       date TEXT,
       amount REAL,
       status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent')),
@@ -1130,13 +1138,46 @@ function migrate(db) {
   addColumnIfMissing(db, "commercial_proposals", "advance_percent", "REAL");
   addColumnIfMissing(db, "contracts", "advance_percent", "REAL");
   addColumnIfMissing(db, "annexes", "advance_percent", "REAL");
+  if (addColumnIfMissing(db, "annexes", "number", "TEXT NOT NULL DEFAULT ''")) {
+    // Before 0.3.3 the ДС number was the global row id; renumber per object.
+    backfillAnnexNumbers(db);
+  }
+}
+
+function annexNumberValue(number) {
+  const value = Number.parseInt(String(number ?? "").trim(), 10);
+  return Number.isNaN(value) ? 0 : value;
+}
+
+function nextAnnexNumber(db, objectId) {
+  const rows = db.prepare(`
+    SELECT a.number FROM annexes a
+    JOIN contracts c ON c.id = a.contract_id
+    WHERE c.object_id = ?
+  `).all(objectId);
+  return String(rows.reduce((max, row) => Math.max(max, annexNumberValue(row.number)), 0) + 1);
+}
+
+function backfillAnnexNumbers(db) {
+  const rows = db.prepare(`
+    SELECT a.id, c.object_id FROM annexes a
+    JOIN contracts c ON c.id = a.contract_id
+    WHERE a.number = ''
+    ORDER BY a.id
+  `).all();
+  const update = db.prepare("UPDATE annexes SET number = ? WHERE id = ?");
+  for (const row of rows) {
+    update.run(nextAnnexNumber(db, row.object_id), row.id);
+  }
 }
 
 function addColumnIfMissing(db, table, column, definition) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all();
   if (!columns.some((item) => item.name === column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    return true;
   }
+  return false;
 }
 
 function rebuildSecondaryDocumentsIfNeeded(db, docTypesSql) {

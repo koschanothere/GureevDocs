@@ -159,6 +159,7 @@ const sampleState = {
     {
       id: 5,
       contract_id: 3,
+      number: "1",
       date: "2026-08-02",
       amount: 1260000,
       status: "approved",
@@ -171,6 +172,7 @@ const sampleState = {
     {
       id: 15,
       contract_id: 13,
+      number: "1",
       date: "2026-09-05",
       amount: 850000,
       status: "pending",
@@ -183,6 +185,7 @@ const sampleState = {
     {
       id: 16,
       contract_id: 14,
+      number: "1",
       date: "2026-09-14",
       amount: 420000,
       status: "not_sent",
@@ -372,8 +375,12 @@ function getState() {
   state.annexes = (state.annexes || []).map((annex) => ({
     partial_payment_amount: null,
     advance_percent: null,
+    number: "",
     ...annex,
   }));
+  for (const annex of state.annexes) {
+    if (annex.number === "") annex.number = nextAnnexNumber(state, annexObjectId(state, annex));
+  }
   state.secondary_documents = (state.secondary_documents || []).map((document) => ({
     number: "",
     partial_payment_amount: null,
@@ -391,6 +398,18 @@ function getState() {
 
 function setState(state) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function annexObjectId(state, annex) {
+  return state.contracts.find((contract) => contract.id === annex.contract_id)?.object_id;
+}
+
+function nextAnnexNumber(state, objectId) {
+  const numbers = state.annexes
+    .filter((annex) => annexObjectId(state, annex) === objectId)
+    .map((annex) => Number.parseInt(String(annex.number ?? "").trim(), 10))
+    .filter((value) => !Number.isNaN(value));
+  return String(Math.max(0, ...numbers) + 1);
 }
 
 function nextId(state) {
@@ -535,7 +554,7 @@ function listRegistryDocumentsFromState(state) {
           contract_id: contract.id,
           contract_number: contract.number,
           annex_id: annex.id,
-          annex_label: `ДС ${annex.id}`,
+          annex_label: `ДС ${annex.number}`.trim(),
           doc_type: "annex",
           category: "primary",
           business_type: contract.business_type || null,
@@ -544,7 +563,7 @@ function listRegistryDocumentsFromState(state) {
           status: annex.status,
           payment_status: annex.payment_status,
           partial_payment_amount: annex.partial_payment_amount,
-          document_number: String(annex.id),
+          document_number: annex.number,
           file_path: annex.file_path,
           original_filename: annex.original_filename,
         });
@@ -580,7 +599,7 @@ function listRegistryDocumentsFromState(state) {
             contract_id: contract.id,
             contract_number: contract.number,
             annex_id: annex.id,
-            annex_label: `ДС ${annex.id}`,
+            annex_label: `ДС ${annex.number}`.trim(),
             document_number: doc.number || "",
             category: "secondary",
             business_type: contract.business_type || null,
@@ -795,7 +814,8 @@ function makeMockApi() {
     },
     async createAnnex(payload) {
       const state = getState();
-      const annex = { id: nextId(state), ...payload, created_at: now(), payment_status: "unpaid", partial_payment_amount: null, file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
+      const number = String(payload.number ?? "").trim() || nextAnnexNumber(state, annexObjectId(state, { contract_id: Number(payload.contract_id) }));
+      const annex = { id: nextId(state), ...payload, number, created_at: now(), payment_status: "unpaid", partial_payment_amount: null, file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
       annex.advance_percent = normalizePercent(annex.advance_percent);
       state.annexes.push(annex);
       setState(state);
@@ -807,6 +827,7 @@ function makeMockApi() {
       if (index >= 0) {
         state.annexes[index] = {
           ...state.annexes[index],
+          number: payload.number !== undefined ? String(payload.number ?? "").trim() : state.annexes[index].number,
           date: payload.date || null,
           amount: payload.amount === "" ? null : Number(payload.amount),
           status: payload.status,

@@ -1054,7 +1054,7 @@ function AnnexList({ annexes, sort, onSort, expandedAnnexes, onToggleAnnex, onUp
         <span></span>
         <span></span>
         <span>Компания</span>
-        <SortableDiv label="ДС" field="id" sort={sort} onSort={onSort} />
+        <SortableDiv label="ДС" field="number" sort={sort} onSort={onSort} />
         <SortableDiv label="Дата" field="date" sort={sort} onSort={onSort} />
         <SortableDiv label="Сумма" field="amount" sort={sort} onSort={onSort} />
         <SortableDiv label="Аванс" field="advance_percent" sort={sort} onSort={onSort} />
@@ -1075,7 +1075,12 @@ function AnnexList({ annexes, sort, onSort, expandedAnnexes, onToggleAnnex, onUp
               </button>
               <FileArchive size={15} className="row-icon" />
               <BusinessBadge value={annex.business_type} className="row-biztype" />
-              <span className="strong-cell">ДС {annex.id}</span>
+              <EditableValue
+                className="strong-cell"
+                value={annex.number}
+                prefix="ДС "
+                onCommit={(value) => onUpdateAnnex(annex, { number: value })}
+              />
               <EditableValue
                 className="mono"
                 type="date"
@@ -1333,6 +1338,14 @@ function Registry({ onOpenObject, refreshKey }) {
   );
 }
 
+function nextAnnexNumber(objectDetails) {
+  const numbers = (objectDetails?.contracts || [])
+    .flatMap((contract) => contract.annexes || [])
+    .map((annex) => Number.parseInt(String(annex.number ?? "").trim(), 10))
+    .filter((value) => !Number.isNaN(value));
+  return String(Math.max(0, ...numbers) + 1);
+}
+
 function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, initialBusinessType, objects, onClose, onSaved }) {
   const [file, setFile] = useState(null);
   const [category, setCategory] = useState(initialContractId ? "secondary" : "contract");
@@ -1343,6 +1356,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, in
   const [annexId, setAnnexId] = useState(initialAnnexId || "");
   const [docType, setDocType] = useState("act");
   const [businessType, setBusinessType] = useState(initialBusinessType || "");
+  const [annexNumber, setAnnexNumber] = useState("");
   const [form, setForm] = useState({
     number: "",
     date: new Date().toISOString().slice(0, 10),
@@ -1363,6 +1377,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, in
     }
     api.getObjectDetails(Number(objectId)).then((details) => {
       setObjectDetails(details);
+      setAnnexNumber(nextAnnexNumber(details));
       if (!contractId && details?.contracts?.length) {
         setContractId(details.contracts[0].id);
       }
@@ -1436,6 +1451,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, in
         await api.createAnnex({
           ...base,
           contract_id: Number(contractId),
+          number: annexNumber,
           advance_percent: form.advance_percent,
         });
       } else {
@@ -1529,7 +1545,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, in
                   Доп. соглашение
                   <select value={annexId} onChange={(event) => setAnnexId(event.target.value)}>
                     <option value="">Выберите ДС</option>
-                    {annexes.map((annex) => <option key={annex.id} value={annex.id}>ДС {annex.id} от {formatDate(annex.date)}</option>)}
+                    {annexes.map((annex) => <option key={annex.id} value={annex.id}>ДС {annex.number || "—"} от {formatDate(annex.date)}</option>)}
                   </select>
                 </label>
               )}
@@ -1559,6 +1575,12 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, in
                 </>
               )}
             </>
+          )}
+          {category === "annex" && (
+            <label>
+              Номер ДС
+              <input value={annexNumber} onChange={(event) => setAnnexNumber(event.target.value)} />
+            </label>
           )}
           <label>
             Дата

@@ -1,5 +1,5 @@
 {
-  "name": "gureevdoc",
+  "name": "gureevdocs",
   "version": "0.3.3",
   "description": "Офлайн-реестр строительных объектов, договоров и документов",
   "main": "src/main/main.js",

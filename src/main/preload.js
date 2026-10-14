@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 const invoke = (channel, payload) => ipcRenderer.invoke(channel, payload);
 
@@ -30,5 +30,6 @@ contextBridge.exposeInMainWorld("stroySort", {
   exportAllData: () => invoke("backup:export"),
   importAllData: () => invoke("backup:import"),
   selectFile: () => invoke("files:select"),
+  getPathForFile: (file) => webUtils.getPathForFile(file),
   openFile: (filePath) => invoke("files:open", { filePath }),
 });

@@ -6,17 +6,18 @@ const Database = require("better-sqlite3");
 const { parse } = require("csv-parse/sync");
 const { stringify } = require("csv-stringify/sync");
 
-const APPROVAL_STATUSES = ["na", "approved", "pending", "not_sent"];
+const APPROVAL_STATUSES = ["na", "approved", "pending", "not_sent", "signed", "annulled"];
 const PAYMENT_STATUSES = ["paid", "partial", "unpaid"];
 const COMMENT_COLORS = ["pink", "violet"];
 const BUSINESS_TYPES = ["ooo", "ip"];
+const EXCHANGE_TYPES = ["edo", "fiz"];
 const DOC_TYPES = ["commercial_proposal", "act", "invoice", "invoice_facture", "report", "outgoing_letter", "order", "waybill"];
 const TABLE_COLUMNS = {
-  objects: ["id", "name", "customer", "address", "comment", "folder_created_date", "is_ooo", "is_ip", "created_at"],
-  commercial_proposals: ["id", "object_id", "number", "date", "amount", "status", "business_type", "advance_percent", "comment", "file_path", "original_filename", "created_at"],
-  contracts: ["id", "object_id", "number", "date", "amount", "status", "payment_status", "partial_payment_amount", "business_type", "advance_percent", "comment", "comment_color", "file_path", "original_filename", "created_at"],
-  annexes: ["id", "contract_id", "number", "date", "amount", "status", "payment_status", "partial_payment_amount", "advance_percent", "file_path", "original_filename", "created_at"],
-  secondary_documents: ["id", "parent_type", "parent_id", "doc_type", "number", "date", "amount", "status", "payment_status", "partial_payment_amount", "file_path", "original_filename", "created_at"],
+  objects: ["id", "name", "customer", "address", "comment", "folder_created_date", "is_ooo", "is_ip", "is_edo", "is_fiz", "created_at"],
+  commercial_proposals: ["id", "object_id", "number", "date", "amount", "vat_percent", "status", "business_type", "exchange_type", "advance_percent", "comment", "file_path", "original_filename", "created_at"],
+  contracts: ["id", "object_id", "number", "date", "amount", "vat_percent", "status", "payment_status", "partial_payment_amount", "business_type", "exchange_type", "advance_percent", "comment", "comment_color", "file_path", "original_filename", "created_at"],
+  annexes: ["id", "contract_id", "number", "date", "amount", "vat_percent", "status", "payment_status", "partial_payment_amount", "exchange_type", "advance_percent", "file_path", "original_filename", "created_at"],
+  secondary_documents: ["id", "parent_type", "parent_id", "doc_type", "number", "date", "amount", "vat_percent", "status", "payment_status", "partial_payment_amount", "exchange_type", "file_path", "original_filename", "created_at"],
 };
 const FILE_TABLES = ["commercial_proposals", "contracts", "annexes", "secondary_documents"];
 
@@ -92,10 +93,14 @@ function createStore(userDataPath) {
     for (const column of TABLE_COLUMNS[table]) {
       if (column === "amount" || column === "partial_payment_amount" || column === "advance_percent") {
         result[column] = normalizeMoney(row[column]);
+      } else if (column === "vat_percent") {
+        result[column] = normalizeVat(row[column]);
       } else if (column.endsWith("_id") || column === "id" || column === "parent_id") {
         result[column] = Number(row[column]);
-      } else if (column === "is_ooo" || column === "is_ip") {
+      } else if (column === "is_ooo" || column === "is_ip" || column === "is_edo" || column === "is_fiz") {
         result[column] = Number(row[column]) ? 1 : 0;
+      } else if (column === "exchange_type") {
+        result[column] = normalizeExchangeType(row[column]);
       } else {
         result[column] = row[column] === "" || row[column] === undefined ? null : row[column];
       }
@@ -153,6 +158,27 @@ function createStore(userDataPath) {
     return value;
   }
 
+  function normalizeExchangeType(value) {
+    if (value === undefined || value === null || value === "") return null;
+    assertEnum(value, EXCHANGE_TYPES, "exchange_type");
+    return value;
+  }
+
+  function cascadeObjectExchangeType(objectId, exchangeType) {
+    if (exchangeType === "edo") {
+      db.prepare("UPDATE objects SET is_edo = 1 WHERE id = ? AND is_edo = 0").run(objectId);
+    } else if (exchangeType === "fiz") {
+      db.prepare("UPDATE objects SET is_fiz = 1 WHERE id = ? AND is_fiz = 0").run(objectId);
+    }
+  }
+
+  function objectIdForParent(parentType, parentId) {
+    const contractId = parentType === "annex"
+      ? db.prepare("SELECT contract_id FROM annexes WHERE id = ?").get(parentId)?.contract_id
+      : parentId;
+    return db.prepare("SELECT object_id FROM contracts WHERE id = ?").get(contractId)?.object_id;
+  }
+
   function cascadeObjectBusinessType(objectId, businessType) {
     if (businessType === "ooo") {
       db.prepare("UPDATE objects SET is_ooo = 1 WHERE id = ? AND is_ooo = 0").run(objectId);
@@ -173,6 +199,14 @@ function createStore(userDataPath) {
     const number = Number(value);
     if (Number.isNaN(number)) throw new Error("Аванс должен быть числом");
     if (number < 0 || number > 100) throw new Error("Аванс должен быть от 0 до 100");
+    return number;
+  }
+
+  function normalizeVat(value) {
+    if (value === "" || value === null || value === undefined) return null;
+    const number = Number(value);
+    if (!Number.isInteger(number)) throw new Error("НДС должен быть целым числом");
+    if (number < 0 || number > 100) throw new Error("НДС должен быть от 0 до 100");
     return number;
   }
 
@@ -382,8 +416,8 @@ function createStore(userDataPath) {
 
   function createObject(payload) {
     const stmt = db.prepare(`
-      INSERT INTO objects (name, customer, address, comment, folder_created_date, is_ooo, is_ip, created_at)
-      VALUES (@name, @customer, @address, @comment, @folder_created_date, @is_ooo, @is_ip, @created_at)
+      INSERT INTO objects (name, customer, address, comment, folder_created_date, is_ooo, is_ip, is_edo, is_fiz, created_at)
+      VALUES (@name, @customer, @address, @comment, @folder_created_date, @is_ooo, @is_ip, @is_edo, @is_fiz, @created_at)
     `);
     const info = stmt.run({
       name: String(payload.name || "").trim(),
@@ -393,6 +427,8 @@ function createStore(userDataPath) {
       folder_created_date: payload.folder_created_date || null,
       is_ooo: payload.is_ooo ? 1 : 0,
       is_ip: payload.is_ip ? 1 : 0,
+      is_edo: payload.is_edo ? 1 : 0,
+      is_fiz: payload.is_fiz ? 1 : 0,
       created_at: now(),
     });
     return getObjectDetails(info.lastInsertRowid);
@@ -407,7 +443,9 @@ function createStore(userDataPath) {
           comment = @comment,
           folder_created_date = @folder_created_date,
           is_ooo = @is_ooo,
-          is_ip = @is_ip
+          is_ip = @is_ip,
+          is_edo = @is_edo,
+          is_fiz = @is_fiz
       WHERE id = @id
     `).run({
       id: payload.id,
@@ -418,6 +456,8 @@ function createStore(userDataPath) {
       folder_created_date: payload.folder_created_date || null,
       is_ooo: payload.is_ooo ? 1 : 0,
       is_ip: payload.is_ip ? 1 : 0,
+      is_edo: payload.is_edo ? 1 : 0,
+      is_fiz: payload.is_fiz ? 1 : 0,
     });
     return getObjectDetails(payload.id);
   }
@@ -430,19 +470,22 @@ function createStore(userDataPath) {
   function createCommercialProposal(payload) {
     assertEnum(payload.status, APPROVAL_STATUSES, "status");
     const businessType = normalizeBusinessType(payload.business_type);
+    const exchangeType = normalizeExchangeType(payload.exchange_type);
     const file = storeFile(payload.sourceFilePath, payload.original_filename);
     const info = db.prepare(`
       INSERT INTO commercial_proposals
-        (object_id, number, date, amount, status, business_type, advance_percent, comment, file_path, original_filename, created_at)
+        (object_id, number, date, amount, vat_percent, status, business_type, exchange_type, advance_percent, comment, file_path, original_filename, created_at)
       VALUES
-        (@object_id, @number, @date, @amount, @status, @business_type, @advance_percent, @comment, @file_path, @original_filename, @created_at)
+        (@object_id, @number, @date, @amount, @vat_percent, @status, @business_type, @exchange_type, @advance_percent, @comment, @file_path, @original_filename, @created_at)
     `).run({
       object_id: payload.object_id,
       number: payload.number || "",
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
+      vat_percent: normalizeVat(payload.vat_percent),
       status: payload.status,
       business_type: businessType,
+      exchange_type: exchangeType,
       advance_percent: normalizePercent(payload.advance_percent),
       comment: payload.comment || "",
       file_path: file.file_path,
@@ -450,6 +493,7 @@ function createStore(userDataPath) {
       created_at: now(),
     });
     cascadeObjectBusinessType(payload.object_id, businessType);
+    cascadeObjectExchangeType(payload.object_id, exchangeType);
     return getCommercialProposal(info.lastInsertRowid);
   }
 
@@ -457,14 +501,17 @@ function createStore(userDataPath) {
     assertEnum(payload.status, APPROVAL_STATUSES, "status");
     const current = getCommercialProposal(payload.id);
     const businessType = payload.business_type !== undefined ? normalizeBusinessType(payload.business_type) : current.business_type;
+    const exchangeType = payload.exchange_type !== undefined ? normalizeExchangeType(payload.exchange_type) : current.exchange_type;
     const file = replaceStoredFile(current, payload);
     db.prepare(`
       UPDATE commercial_proposals
       SET number = @number,
           date = @date,
           amount = @amount,
+          vat_percent = @vat_percent,
           status = @status,
           business_type = @business_type,
+          exchange_type = @exchange_type,
           advance_percent = @advance_percent,
           comment = @comment,
           file_path = @file_path,
@@ -475,14 +522,17 @@ function createStore(userDataPath) {
       number: payload.number || "",
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
+      vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : current.vat_percent,
       status: payload.status,
       business_type: businessType,
+      exchange_type: exchangeType,
       advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : current.advance_percent,
       comment: payload.comment || "",
       file_path: file.file_path,
       original_filename: file.original_filename,
     });
     cascadeObjectBusinessType(current.object_id, businessType);
+    cascadeObjectExchangeType(current.object_id, exchangeType);
     return getCommercialProposal(payload.id);
   }
 
@@ -505,19 +555,27 @@ function createStore(userDataPath) {
       const advancePercent = payload.advance_percent !== undefined && payload.advance_percent !== ""
         ? normalizePercent(payload.advance_percent)
         : proposal.advance_percent;
+      const vatPercent = payload.vat_percent !== undefined && payload.vat_percent !== ""
+        ? normalizeVat(payload.vat_percent)
+        : proposal.vat_percent;
+      const exchangeType = payload.exchange_type !== undefined && payload.exchange_type !== ""
+        ? normalizeExchangeType(payload.exchange_type)
+        : proposal.exchange_type;
       const file = storeFile(payload.sourceFilePath, payload.original_filename);
       const contractInfo = db.prepare(`
         INSERT INTO contracts
-          (object_id, number, date, amount, status, payment_status, partial_payment_amount, business_type, advance_percent, comment, comment_color, file_path, original_filename, created_at)
+          (object_id, number, date, amount, vat_percent, status, payment_status, partial_payment_amount, business_type, exchange_type, advance_percent, comment, comment_color, file_path, original_filename, created_at)
         VALUES
-          (@object_id, @number, @date, @amount, @status, 'unpaid', NULL, @business_type, @advance_percent, @comment, @comment_color, @file_path, @original_filename, @created_at)
+          (@object_id, @number, @date, @amount, @vat_percent, @status, 'unpaid', NULL, @business_type, @exchange_type, @advance_percent, @comment, @comment_color, @file_path, @original_filename, @created_at)
       `).run({
         object_id: proposal.object_id,
         number: payload.number || "",
         date: payload.date || null,
         amount: normalizeMoney(payload.amount),
+        vat_percent: vatPercent,
         status: payload.status,
         business_type: businessType,
+        exchange_type: exchangeType,
         advance_percent: advancePercent,
         comment: payload.comment || proposal.comment || "",
         comment_color: payload.comment_color || "pink",
@@ -526,17 +584,20 @@ function createStore(userDataPath) {
         created_at: now(),
       });
       cascadeObjectBusinessType(proposal.object_id, businessType);
+      cascadeObjectExchangeType(proposal.object_id, exchangeType);
 
       db.prepare(`
         INSERT INTO secondary_documents
-          (parent_type, parent_id, doc_type, number, date, amount, status, payment_status, partial_payment_amount, file_path, original_filename, created_at)
+          (parent_type, parent_id, doc_type, number, date, amount, vat_percent, status, payment_status, partial_payment_amount, exchange_type, file_path, original_filename, created_at)
         VALUES
-          ('contract', @parent_id, 'commercial_proposal', @number, @date, @amount, @status, 'unpaid', NULL, @file_path, @original_filename, @created_at)
+          ('contract', @parent_id, 'commercial_proposal', @number, @date, @amount, @vat_percent, @status, 'unpaid', NULL, @proposal_exchange_type, @file_path, @original_filename, @created_at)
       `).run({
         parent_id: contractInfo.lastInsertRowid,
         number: proposal.number || "",
         date: proposal.date || null,
         amount: normalizeMoney(proposal.amount),
+        vat_percent: proposal.vat_percent ?? null,
+        proposal_exchange_type: proposal.exchange_type ?? null,
         status: proposal.status,
         file_path: proposal.file_path || null,
         original_filename: proposal.original_filename || null,
@@ -554,19 +615,22 @@ function createStore(userDataPath) {
     assertEnum(payload.status, APPROVAL_STATUSES, "status");
     assertEnum(payload.comment_color || "pink", COMMENT_COLORS, "comment_color");
     const businessType = normalizeBusinessType(payload.business_type);
+    const exchangeType = normalizeExchangeType(payload.exchange_type);
     const file = storeFile(payload.sourceFilePath, payload.original_filename);
     const info = db.prepare(`
       INSERT INTO contracts
-        (object_id, number, date, amount, status, payment_status, partial_payment_amount, business_type, advance_percent, comment, comment_color, file_path, original_filename, created_at)
+        (object_id, number, date, amount, vat_percent, status, payment_status, partial_payment_amount, business_type, exchange_type, advance_percent, comment, comment_color, file_path, original_filename, created_at)
       VALUES
-        (@object_id, @number, @date, @amount, @status, 'unpaid', NULL, @business_type, @advance_percent, @comment, @comment_color, @file_path, @original_filename, @created_at)
+        (@object_id, @number, @date, @amount, @vat_percent, @status, 'unpaid', NULL, @business_type, @exchange_type, @advance_percent, @comment, @comment_color, @file_path, @original_filename, @created_at)
     `).run({
       object_id: payload.object_id,
       number: payload.number || "",
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
+      vat_percent: normalizeVat(payload.vat_percent),
       status: payload.status,
       business_type: businessType,
+      exchange_type: exchangeType,
       advance_percent: normalizePercent(payload.advance_percent),
       comment: payload.comment || "",
       comment_color: payload.comment_color || "pink",
@@ -575,6 +639,7 @@ function createStore(userDataPath) {
       created_at: now(),
     });
     cascadeObjectBusinessType(payload.object_id, businessType);
+    cascadeObjectExchangeType(payload.object_id, exchangeType);
     return getContract(info.lastInsertRowid);
   }
 
@@ -583,14 +648,17 @@ function createStore(userDataPath) {
     assertEnum(payload.comment_color || "pink", COMMENT_COLORS, "comment_color");
     const current = getContract(payload.id);
     const businessType = payload.business_type !== undefined ? normalizeBusinessType(payload.business_type) : current.business_type;
+    const exchangeType = payload.exchange_type !== undefined ? normalizeExchangeType(payload.exchange_type) : current.exchange_type;
     const file = replaceStoredFile(current, payload);
     db.prepare(`
       UPDATE contracts
       SET number = @number,
           date = @date,
           amount = @amount,
+          vat_percent = @vat_percent,
           status = @status,
           business_type = @business_type,
+          exchange_type = @exchange_type,
           advance_percent = @advance_percent,
           comment = @comment,
           comment_color = @comment_color,
@@ -602,8 +670,10 @@ function createStore(userDataPath) {
       number: payload.number || "",
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
+      vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : current.vat_percent,
       status: payload.status,
       business_type: businessType,
+      exchange_type: exchangeType,
       advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : current.advance_percent,
       comment: payload.comment || "",
       comment_color: payload.comment_color || "pink",
@@ -611,6 +681,7 @@ function createStore(userDataPath) {
       original_filename: file.original_filename,
     });
     cascadeObjectBusinessType(current.object_id, businessType);
+    cascadeObjectExchangeType(current.object_id, exchangeType);
     return getContract(payload.id);
   }
 
@@ -624,36 +695,43 @@ function createStore(userDataPath) {
     const contract = db.prepare("SELECT object_id FROM contracts WHERE id = ?").get(payload.contract_id);
     if (!contract) throw new Error("Договор не найден");
     const number = String(payload.number ?? "").trim() || nextAnnexNumber(db, contract.object_id);
+    const exchangeType = normalizeExchangeType(payload.exchange_type);
     const file = storeFile(payload.sourceFilePath, payload.original_filename);
     const info = db.prepare(`
       INSERT INTO annexes
-        (contract_id, number, date, amount, status, payment_status, partial_payment_amount, advance_percent, file_path, original_filename, created_at)
+        (contract_id, number, date, amount, vat_percent, status, payment_status, partial_payment_amount, exchange_type, advance_percent, file_path, original_filename, created_at)
       VALUES
-        (@contract_id, @number, @date, @amount, @status, 'unpaid', NULL, @advance_percent, @file_path, @original_filename, @created_at)
+        (@contract_id, @number, @date, @amount, @vat_percent, @status, 'unpaid', NULL, @exchange_type, @advance_percent, @file_path, @original_filename, @created_at)
     `).run({
       contract_id: payload.contract_id,
       number,
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
+      vat_percent: normalizeVat(payload.vat_percent),
       status: payload.status,
+      exchange_type: exchangeType,
       advance_percent: normalizePercent(payload.advance_percent),
       file_path: file.file_path,
       original_filename: file.original_filename,
       created_at: now(),
     });
+    cascadeObjectExchangeType(contract.object_id, exchangeType);
     return getAnnex(info.lastInsertRowid);
   }
 
   function updateAnnex(payload) {
     assertEnum(payload.status, APPROVAL_STATUSES, "status");
     const current = getAnnex(payload.id);
+    const exchangeType = payload.exchange_type !== undefined ? normalizeExchangeType(payload.exchange_type) : current.exchange_type;
     const file = replaceStoredFile(current, payload);
     db.prepare(`
       UPDATE annexes
       SET number = @number,
           date = @date,
           amount = @amount,
+          vat_percent = @vat_percent,
           status = @status,
+          exchange_type = @exchange_type,
           advance_percent = @advance_percent,
           file_path = @file_path,
           original_filename = @original_filename
@@ -663,11 +741,14 @@ function createStore(userDataPath) {
       number: payload.number !== undefined ? String(payload.number ?? "").trim() : current.number,
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
+      vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : current.vat_percent,
       status: payload.status,
+      exchange_type: exchangeType,
       advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : current.advance_percent,
       file_path: file.file_path,
       original_filename: file.original_filename,
     });
+    cascadeObjectExchangeType(objectIdForParent("contract", current.contract_id), exchangeType);
     return getAnnex(payload.id);
   }
 
@@ -681,12 +762,13 @@ function createStore(userDataPath) {
     assertEnum(payload.doc_type, DOC_TYPES, "doc_type");
     assertEnum(payload.status, APPROVAL_STATUSES, "status");
     assertEnum(payload.payment_status, PAYMENT_STATUSES, "payment_status");
+    const exchangeType = normalizeExchangeType(payload.exchange_type);
     const file = storeFile(payload.sourceFilePath, payload.original_filename);
     const info = db.prepare(`
       INSERT INTO secondary_documents
-        (parent_type, parent_id, doc_type, number, date, amount, status, payment_status, partial_payment_amount, file_path, original_filename, created_at)
+        (parent_type, parent_id, doc_type, number, date, amount, vat_percent, status, payment_status, partial_payment_amount, exchange_type, file_path, original_filename, created_at)
       VALUES
-        (@parent_type, @parent_id, @doc_type, @number, @date, @amount, @status, @payment_status, @partial_payment_amount, @file_path, @original_filename, @created_at)
+        (@parent_type, @parent_id, @doc_type, @number, @date, @amount, @vat_percent, @status, @payment_status, @partial_payment_amount, @exchange_type, @file_path, @original_filename, @created_at)
     `).run({
       parent_type: payload.parent_type,
       parent_id: payload.parent_id,
@@ -694,13 +776,16 @@ function createStore(userDataPath) {
       number: payload.number || "",
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
+      vat_percent: normalizeVat(payload.vat_percent),
       status: payload.status,
       payment_status: payload.payment_status,
       partial_payment_amount: paymentPartialAmount(payload),
+      exchange_type: exchangeType,
       file_path: file.file_path,
       original_filename: file.original_filename,
       created_at: now(),
     });
+    cascadeObjectExchangeType(objectIdForParent(payload.parent_type, payload.parent_id), exchangeType);
     return getSecondaryDocument(info.lastInsertRowid);
   }
 
@@ -709,6 +794,7 @@ function createStore(userDataPath) {
     assertEnum(payload.status, APPROVAL_STATUSES, "status");
     assertEnum(payload.payment_status, PAYMENT_STATUSES, "payment_status");
     const current = getSecondaryDocument(payload.id);
+    const exchangeType = payload.exchange_type !== undefined ? normalizeExchangeType(payload.exchange_type) : current.exchange_type;
     const file = replaceStoredFile(current, payload);
     db.prepare(`
       UPDATE secondary_documents
@@ -716,9 +802,11 @@ function createStore(userDataPath) {
           number = @number,
           date = @date,
           amount = @amount,
+          vat_percent = @vat_percent,
           status = @status,
           payment_status = @payment_status,
           partial_payment_amount = @partial_payment_amount,
+          exchange_type = @exchange_type,
           file_path = @file_path,
           original_filename = @original_filename
       WHERE id = @id
@@ -728,12 +816,15 @@ function createStore(userDataPath) {
       number: payload.number || "",
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
+      vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : current.vat_percent,
       status: payload.status,
       payment_status: payload.payment_status,
       partial_payment_amount: paymentPartialAmount(payload),
+      exchange_type: exchangeType,
       file_path: file.file_path,
       original_filename: file.original_filename,
     });
+    cascadeObjectExchangeType(objectIdForParent(current.parent_type, current.parent_id), exchangeType);
     return getSecondaryDocument(payload.id);
   }
 
@@ -884,8 +975,10 @@ function createStore(userDataPath) {
           cp.number AS document_number,
           'primary' AS category,
           cp.business_type,
+          cp.exchange_type,
           cp.date,
           cp.amount,
+          cp.vat_percent,
           cp.status,
           'unpaid' AS payment_status,
           NULL AS partial_payment_amount,
@@ -909,8 +1002,10 @@ function createStore(userDataPath) {
           c.number AS document_number,
           'primary' AS category,
           c.business_type,
+          c.exchange_type,
           c.date,
           c.amount,
+          c.vat_percent,
           c.status,
           c.payment_status,
           c.partial_payment_amount,
@@ -934,8 +1029,10 @@ function createStore(userDataPath) {
           a.number AS document_number,
           'primary' AS category,
           c.business_type,
+          a.exchange_type,
           a.date,
           a.amount,
+          a.vat_percent,
           a.status,
           a.payment_status,
           a.partial_payment_amount,
@@ -960,8 +1057,10 @@ function createStore(userDataPath) {
           sd.number AS document_number,
           'secondary' AS category,
           c.business_type,
+          sd.exchange_type,
           sd.date,
           sd.amount,
+          sd.vat_percent,
           sd.status,
           sd.payment_status,
           sd.partial_payment_amount,
@@ -986,8 +1085,10 @@ function createStore(userDataPath) {
           sd.number AS document_number,
           'secondary' AS category,
           c.business_type,
+          sd.exchange_type,
           sd.date,
           sd.amount,
+          sd.vat_percent,
           sd.status,
           sd.payment_status,
           sd.partial_payment_amount,
@@ -1051,6 +1152,8 @@ function migrate(db) {
       folder_created_date TEXT,
       is_ooo INTEGER NOT NULL DEFAULT 0,
       is_ip INTEGER NOT NULL DEFAULT 0,
+      is_edo INTEGER NOT NULL DEFAULT 0,
+      is_fiz INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
 
@@ -1060,7 +1163,9 @@ function migrate(db) {
       number TEXT NOT NULL DEFAULT '',
       date TEXT,
       amount REAL,
-      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent')),
+      vat_percent INTEGER,
+      exchange_type TEXT CHECK (exchange_type IN ('edo', 'fiz')),
+      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent', 'signed', 'annulled')),
       business_type TEXT CHECK (business_type IN ('ooo', 'ip')),
       advance_percent REAL,
       comment TEXT NOT NULL DEFAULT '',
@@ -1075,7 +1180,9 @@ function migrate(db) {
       number TEXT NOT NULL DEFAULT '',
       date TEXT,
       amount REAL,
-      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent')),
+      vat_percent INTEGER,
+      exchange_type TEXT CHECK (exchange_type IN ('edo', 'fiz')),
+      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent', 'signed', 'annulled')),
       payment_status TEXT NOT NULL CHECK (payment_status IN ('paid', 'partial', 'unpaid')),
       partial_payment_amount REAL,
       business_type TEXT CHECK (business_type IN ('ooo', 'ip')),
@@ -1093,7 +1200,9 @@ function migrate(db) {
       number TEXT NOT NULL DEFAULT '',
       date TEXT,
       amount REAL,
-      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent')),
+      vat_percent INTEGER,
+      exchange_type TEXT CHECK (exchange_type IN ('edo', 'fiz')),
+      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent', 'signed', 'annulled')),
       payment_status TEXT NOT NULL CHECK (payment_status IN ('paid', 'partial', 'unpaid')),
       partial_payment_amount REAL,
       advance_percent REAL,
@@ -1110,7 +1219,9 @@ function migrate(db) {
       number TEXT NOT NULL DEFAULT '',
       date TEXT,
       amount REAL,
-      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent')),
+      vat_percent INTEGER,
+      exchange_type TEXT CHECK (exchange_type IN ('edo', 'fiz')),
+      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent', 'signed', 'annulled')),
       payment_status TEXT NOT NULL CHECK (payment_status IN ('paid', 'partial', 'unpaid')),
       partial_payment_amount REAL,
       file_path TEXT,
@@ -1138,6 +1249,13 @@ function migrate(db) {
   addColumnIfMissing(db, "commercial_proposals", "advance_percent", "REAL");
   addColumnIfMissing(db, "contracts", "advance_percent", "REAL");
   addColumnIfMissing(db, "annexes", "advance_percent", "REAL");
+  addColumnIfMissing(db, "objects", "is_edo", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "objects", "is_fiz", "INTEGER NOT NULL DEFAULT 0");
+  for (const table of ["commercial_proposals", "contracts", "annexes", "secondary_documents"]) {
+    addColumnIfMissing(db, table, "vat_percent", "INTEGER");
+    addColumnIfMissing(db, table, "exchange_type", "TEXT CHECK (exchange_type IN ('edo', 'fiz'))");
+  }
+  addApprovalStatusesIfNeeded(db, ["commercial_proposals", "contracts", "annexes", "secondary_documents"]);
   if (addColumnIfMissing(db, "annexes", "number", "TEXT NOT NULL DEFAULT ''")) {
     // Before 0.3.3 the ДС number was the global row id; renumber per object.
     backfillAnnexNumbers(db);
@@ -1180,6 +1298,42 @@ function addColumnIfMissing(db, table, column, definition) {
   return false;
 }
 
+// SQLite cannot alter a CHECK constraint, so tables created before the "signed"/"annulled"
+// statuses existed are rebuilt (create new, copy, drop old, rename) with the widened list.
+function addApprovalStatusesIfNeeded(db, tables) {
+  const oldCheck = "'not_sent')";
+  const pending = tables
+    .map((table) => ({ table, sql: db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)?.sql }))
+    .filter(({ sql }) => sql && sql.includes(oldCheck) && !sql.includes("'signed'"));
+  if (pending.length === 0) return;
+
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      for (const { table, sql } of pending) {
+        const tempName = `${table}__new`;
+        const createSql = sql
+          .replace(new RegExp(`^CREATE TABLE\\s+"?${table}"?`), `CREATE TABLE ${tempName}`)
+          .replace(oldCheck, "'not_sent', 'signed', 'annulled')");
+        const indexes = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL").all(table);
+        const sequence = db.prepare("SELECT seq FROM sqlite_sequence WHERE name = ?").get(table);
+        const columns = db.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name).join(", ");
+
+        db.exec(createSql);
+        db.exec(`INSERT INTO ${tempName} (${columns}) SELECT ${columns} FROM ${table}`);
+        db.exec(`DROP TABLE ${table}`);
+        db.exec(`ALTER TABLE ${tempName} RENAME TO ${table}`);
+        for (const index of indexes) db.exec(index.sql);
+        if (sequence) db.prepare("UPDATE sqlite_sequence SET seq = ? WHERE name = ?").run(sequence.seq, table);
+      }
+      const violations = db.pragma("foreign_key_check");
+      if (violations.length > 0) throw new Error("Миграция статусов нарушила связи между таблицами");
+    })();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+}
+
 function rebuildSecondaryDocumentsIfNeeded(db, docTypesSql) {
   const table = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'secondary_documents'").get();
   if (!table || table.sql.includes("commercial_proposal")) return;
@@ -1201,7 +1355,9 @@ function rebuildSecondaryDocumentsIfNeeded(db, docTypesSql) {
       number TEXT NOT NULL DEFAULT '',
       date TEXT,
       amount REAL,
-      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent')),
+      vat_percent INTEGER,
+      exchange_type TEXT CHECK (exchange_type IN ('edo', 'fiz')),
+      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent', 'signed', 'annulled')),
       payment_status TEXT NOT NULL CHECK (payment_status IN ('paid', 'partial', 'unpaid')),
       partial_payment_amount REAL,
       file_path TEXT,

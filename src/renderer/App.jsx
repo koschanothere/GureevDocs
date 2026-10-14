@@ -1698,6 +1698,9 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, in
               <input type="number" min="0" step="0.01" value={form.partial_payment_amount} onChange={(event) => setForm({ ...form, partial_payment_amount: event.target.value })} />
             </label>
           )}
+          {category === "commercial_proposal" && file && ["na", "pending", "not_sent"].includes(form.status) && (
+            <p className="muted field-note">КП с приложенным файлом сохранится со статусом «Согласован».</p>
+          )}
           {(category === "contract" || category === "annex") && (
             <p className="muted field-note">Статус оплаты договора и ДС рассчитывается автоматически по прикреплённым счетам.</p>
           )}

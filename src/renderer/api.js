@@ -462,6 +462,11 @@ function normalizePercent(value) {
   return Number.isNaN(number) ? null : number;
 }
 
+// A КП that gains a file is considered approved (signed/annulled are left alone).
+function statusWhenFileAttached(status) {
+  return ["na", "pending", "not_sent"].includes(status) ? "approved" : status;
+}
+
 function normalizeVat(value) {
   if (value === "" || value === null || value === undefined) return null;
   const number = Number(value);
@@ -734,7 +739,7 @@ function makeMockApi() {
     },
     async createCommercialProposal(payload) {
       const state = getState();
-      const proposal = { id: nextId(state), ...payload, created_at: now(), advance_percent: normalizePercent(payload.advance_percent), vat_percent: normalizeVat(payload.vat_percent), exchange_type: normalizeExchangeType(payload.exchange_type), file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
+      const proposal = { id: nextId(state), ...payload, status: payload.sourceFilePath ? statusWhenFileAttached(payload.status) : payload.status, created_at: now(), advance_percent: normalizePercent(payload.advance_percent), vat_percent: normalizeVat(payload.vat_percent), exchange_type: normalizeExchangeType(payload.exchange_type), file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
       state.commercial_proposals.push(proposal);
       cascadeObjectExchangeType(state, proposal.object_id, proposal.exchange_type);
       cascadeObjectBusinessType(state, proposal.object_id, proposal.business_type);
@@ -750,7 +755,7 @@ function makeMockApi() {
           number: payload.number || "",
           date: payload.date || null,
           amount: payload.amount === "" ? null : Number(payload.amount),
-          status: payload.status,
+          status: payload.sourceFilePath ? statusWhenFileAttached(payload.status) : payload.status,
           business_type: payload.business_type !== undefined ? (payload.business_type || null) : state.commercial_proposals[index].business_type,
           advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : state.commercial_proposals[index].advance_percent,
           vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : state.commercial_proposals[index].vat_percent,

@@ -61,11 +61,18 @@ const businessTypeLabels = {
   ip: "ИП",
 };
 
+const exchangeTypeLabels = {
+  edo: "ЭДО",
+  fiz: "Физ.",
+};
+
 const docTypeOptions = ["commercial_proposal", "act", "invoice", "invoice_facture", "report", "outgoing_letter", "order", "waybill"];
 const statusOptions = ["na", "approved", "pending", "not_sent", "signed", "annulled"];
 const paymentOptions = ["paid", "partial", "unpaid"];
 const commentColorOptions = ["pink", "violet"];
 const businessTypeOptions = ["ooo", "ip"];
+const exchangeTypeOptions = ["edo", "fiz"];
+const exchangeSelectOptions = [{ value: "", label: "Не задано" }, ...exchangeTypeOptions.map((value) => ({ value, label: exchangeTypeLabels[value] }))];
 
 function matchesBusinessFilter(value, businessFilter) {
   return businessFilter === "all" || value === businessFilter;
@@ -293,7 +300,7 @@ function App() {
         </aside>
       )}
 
-      <main className="workspace">
+      <main className={`workspace${view === "objects" || view === "registry" ? " workspace-fill" : ""}`}>
         <header className={`topbar${!sidebarOpen ? " topbar-indent" : ""}`}>
           <div>
             <h1>{view === "registry" ? "Глобальный реестр документов" : view === "object" ? (selectedObject?.name || "Объект") : `Объекты${businessModeLabel}`}</h1>
@@ -368,10 +375,16 @@ function ObjectList({ objects, businessFilter, onOpenObject, onCreated, onDelete
     folder_created_date: new Date().toISOString().slice(0, 10),
     is_ooo: businessFilter === "ooo",
     is_ip: businessFilter === "ip",
+    is_edo: false,
+    is_fiz: false,
   });
   const [form, setForm] = useState(blankForm());
 
-  const rows = useMemo(() => sortRows(objects, sort), [objects, sort]);
+  const rows = useMemo(
+    // none < ЭДО < Физ. < both, so ascending order groups objects by their tags
+    () => sortRows(objects.map((object) => ({ ...object, exchange_rank: (object.is_edo ? 1 : 0) + (object.is_fiz ? 2 : 0) })), sort),
+    [objects, sort],
+  );
 
   async function submit(event) {
     event.preventDefault();
@@ -389,7 +402,7 @@ function ObjectList({ objects, businessFilter, onOpenObject, onCreated, onDelete
   }
 
   return (
-    <section className="panel">
+    <section className="panel panel-fill">
       <div className="panel-toolbar">
         <div className="section-title">
           <FolderTree size={18} />
@@ -427,6 +440,13 @@ function ObjectList({ objects, businessFilter, onOpenObject, onCreated, onDelete
               <button type="button" className={form.is_ip ? "active biztype-ip" : ""} onClick={() => setForm({ ...form, is_ip: !form.is_ip })}>ИП</button>
             </div>
           </label>
+          <label>
+            ЭДО / Физ.
+            <div className="segmented business-segmented">
+              <button type="button" className={form.is_edo ? "active exchange-edo" : ""} onClick={() => setForm({ ...form, is_edo: !form.is_edo })}>{exchangeTypeLabels.edo}</button>
+              <button type="button" className={form.is_fiz ? "active exchange-fiz" : ""} onClick={() => setForm({ ...form, is_fiz: !form.is_fiz })}>{exchangeTypeLabels.fiz}</button>
+            </div>
+          </label>
           <div className="form-actions">
             <button className="ghost-button" type="button" onClick={() => setFormOpen(false)}>Отмена</button>
             <button className="text-button" type="submit"><Save size={16} /> Сохранить</button>
@@ -440,6 +460,7 @@ function ObjectList({ objects, businessFilter, onOpenObject, onCreated, onDelete
             <tr>
               <SortableTh label="Объект" field="name" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <th>Компания</th>
+              <SortableTh label="ЭДО/Физ." field="exchange_rank" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Заказчик" field="customer" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Адрес" field="address" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Дата папки" field="folder_created_date" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
@@ -456,6 +477,7 @@ function ObjectList({ objects, businessFilter, onOpenObject, onCreated, onDelete
               <tr key={object.id} className="clickable-row" onClick={() => onOpenObject(object.id)}>
                 <td className="strong-cell">{object.name}</td>
                 <td><ObjectTypeBadges object={object} /></td>
+                <td><ObjectExchangeBadges object={object} /></td>
                 <td>{object.customer || "—"}</td>
                 <td className="muted">{object.address || "—"}</td>
                 <td className="mono">{formatDate(object.folder_created_date)}</td>
@@ -471,7 +493,7 @@ function ObjectList({ objects, businessFilter, onOpenObject, onCreated, onDelete
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && <EmptyRow columns={11} text="Добавьте первый строительный объект" />}
+            {rows.length === 0 && <EmptyRow columns={12} text="Добавьте первый строительный объект" />}
           </tbody>
         </table>
       </div>
@@ -501,6 +523,8 @@ function ObjectDetails({ objectId, businessFilter, refreshKey, onBack, onOpenWiz
       folder_created_date: object.folder_created_date || "",
       is_ooo: Boolean(object.is_ooo),
       is_ip: Boolean(object.is_ip),
+      is_edo: Boolean(object.is_edo),
+      is_fiz: Boolean(object.is_fiz),
     } : null);
   }
 
@@ -646,6 +670,13 @@ function ObjectDetails({ objectId, businessFilter, refreshKey, onBack, onOpenWiz
                 <button type="button" className={form.is_ip ? "active biztype-ip" : ""} onClick={() => setForm({ ...form, is_ip: !form.is_ip })}>ИП</button>
               </div>
             </label>
+            <label>
+              ЭДО / Физ.
+              <div className="segmented business-segmented">
+                <button type="button" className={form.is_edo ? "active exchange-edo" : ""} onClick={() => setForm({ ...form, is_edo: !form.is_edo })}>{exchangeTypeLabels.edo}</button>
+                <button type="button" className={form.is_fiz ? "active exchange-fiz" : ""} onClick={() => setForm({ ...form, is_fiz: !form.is_fiz })}>{exchangeTypeLabels.fiz}</button>
+              </div>
+            </label>
           </div>
           <div className="form-row">
             <label className="field-wide">
@@ -666,6 +697,7 @@ function ObjectDetails({ objectId, businessFilter, refreshKey, onBack, onOpenWiz
             <button className={proposalSort.key === "amount" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "amount"))}>Сумма {proposalSort.key === "amount" ? sortArrow(proposalSort) : ""}</button>
             <button className={proposalSort.key === "advance_percent" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "advance_percent"))}>Аванс {proposalSort.key === "advance_percent" ? sortArrow(proposalSort) : ""}</button>
             <button className={proposalSort.key === "vat_percent" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "vat_percent"))}>НДС {proposalSort.key === "vat_percent" ? sortArrow(proposalSort) : ""}</button>
+            <button className={proposalSort.key === "exchange_type" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "exchange_type"))}>ЭДО/Физ. {proposalSort.key === "exchange_type" ? sortArrow(proposalSort) : ""}</button>
             <button className={proposalSort.key === "status" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "status"))}>Статус {proposalSort.key === "status" ? sortArrow(proposalSort) : ""}</button>
           </div>
         </div>
@@ -687,6 +719,7 @@ function ObjectDetails({ objectId, businessFilter, refreshKey, onBack, onOpenWiz
             <button className={contractSort.key === "amount" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "amount"))}>Сумма {contractSort.key === "amount" ? sortArrow(contractSort) : ""}</button>
             <button className={contractSort.key === "advance_percent" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "advance_percent"))}>Аванс {contractSort.key === "advance_percent" ? sortArrow(contractSort) : ""}</button>
             <button className={contractSort.key === "vat_percent" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "vat_percent"))}>НДС {contractSort.key === "vat_percent" ? sortArrow(contractSort) : ""}</button>
+            <button className={contractSort.key === "exchange_type" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "exchange_type"))}>ЭДО/Физ. {contractSort.key === "exchange_type" ? sortArrow(contractSort) : ""}</button>
             <button className={contractSort.key === "status" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "status"))}>Статус {contractSort.key === "status" ? sortArrow(contractSort) : ""}</button>
             <button className={contractSort.key === "payment_status" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "payment_status"))}>Оплата {contractSort.key === "payment_status" ? sortArrow(contractSort) : ""}</button>
           </div>
@@ -712,6 +745,7 @@ function ObjectDetails({ objectId, businessFilter, refreshKey, onBack, onOpenWiz
                     displayValue={<BusinessBadge value={contract.business_type} />}
                     onCommit={(value) => updateContract(contract, { business_type: value || null })}
                   />
+                  <ExchangeSelect value={contract.exchange_type} onCommit={(value) => updateContract(contract, { exchange_type: value })} />
                   <EditableValue
                     className="strong-cell"
                     value={contract.number}
@@ -837,6 +871,7 @@ function ProposalList({ proposals, onUpdate, onDelete, onCreateContract, onRepla
       <div className="proposal-header">
         <span></span>
         <span>Компания</span>
+        <span>ЭДО/Физ.</span>
         <span>Номер</span>
         <span>Дата</span>
         <span>Сумма</span>
@@ -857,6 +892,7 @@ function ProposalList({ proposals, onUpdate, onDelete, onCreateContract, onRepla
             displayValue={<BusinessBadge value={proposal.business_type} />}
             onCommit={(value) => onUpdate(proposal, { business_type: value || null })}
           />
+          <ExchangeSelect value={proposal.exchange_type} onCommit={(value) => onUpdate(proposal, { exchange_type: value })} />
           <EditableValue
             className="strong-cell"
             value={proposal.number}
@@ -969,6 +1005,7 @@ function ProposalContractModal({ proposal, onClose, onSaved }) {
     date: new Date().toISOString().slice(0, 10),
     amount: proposal.amount ?? "",
     vat_percent: proposal.vat_percent ?? "",
+    exchange_type: proposal.exchange_type || "",
     status: "approved",
     payment_status: "unpaid",
     partial_payment_amount: "",
@@ -1032,6 +1069,7 @@ function ProposalContractModal({ proposal, onClose, onSaved }) {
             <input type="number" min="0" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} />
           </label>
           <VatField value={form.vat_percent} onChange={(value) => setForm({ ...form, vat_percent: value })} />
+          <ExchangeField value={form.exchange_type} onChange={(value) => setForm({ ...form, exchange_type: value })} />
           <label>
             Аванс, %
             <input type="number" min="0" max="100" step="1" value={form.advance_percent} onChange={(event) => setForm({ ...form, advance_percent: event.target.value })} />
@@ -1068,6 +1106,7 @@ function AnnexList({ annexes, sort, onSort, expandedAnnexes, onToggleAnnex, onUp
         <span></span>
         <span></span>
         <span>Компания</span>
+        <SortableDiv label="ЭДО/Физ." field="exchange_type" sort={sort} onSort={onSort} />
         <SortableDiv label="ДС" field="number" sort={sort} onSort={onSort} />
         <SortableDiv label="Дата" field="date" sort={sort} onSort={onSort} />
         <SortableDiv label="Сумма" field="amount" sort={sort} onSort={onSort} />
@@ -1090,6 +1129,7 @@ function AnnexList({ annexes, sort, onSort, expandedAnnexes, onToggleAnnex, onUp
               </button>
               <FileArchive size={15} className="row-icon" />
               <BusinessBadge value={annex.business_type} className="row-biztype" />
+              <ExchangeSelect value={annex.exchange_type} onCommit={(value) => onUpdateAnnex(annex, { exchange_type: value })} />
               <EditableValue
                 className="strong-cell"
                 value={annex.number}
@@ -1174,6 +1214,7 @@ function SecondaryDocumentsTable({ documents, onUpdate, onReplaceFile, onDelete 
         <thead>
           <tr>
             <th>Компания</th>
+            <SortableTh label="ЭДО/Физ." field="exchange_type" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
             <SortableTh label="Тип" field="doc_type" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
             <SortableTh label="Номер" field="number" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
             <SortableTh label="Дата" field="date" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
@@ -1190,6 +1231,7 @@ function SecondaryDocumentsTable({ documents, onUpdate, onReplaceFile, onDelete 
           {rows.map((doc) => (
             <tr key={doc.id}>
               <td><BusinessBadge value={doc.business_type} /></td>
+              <td><ExchangeSelect value={doc.exchange_type} onCommit={(value) => onUpdate(doc, { exchange_type: value })} /></td>
               <td>
                 <EditableValue
                   type="select"
@@ -1267,7 +1309,7 @@ function SecondaryDocumentsTable({ documents, onUpdate, onReplaceFile, onDelete 
               </td>
             </tr>
           ))}
-          {rows.length === 0 && <EmptyRow columns={11} text="Документов нет" />}
+          {rows.length === 0 && <EmptyRow columns={12} text="Документов нет" />}
         </tbody>
       </table>
     </div>
@@ -1277,7 +1319,7 @@ function SecondaryDocumentsTable({ documents, onUpdate, onReplaceFile, onDelete 
 function Registry({ onOpenObject, refreshKey }) {
   const [rows, setRows] = useState([]);
   const [sort, setSort] = useState({ key: "date", direction: "desc" });
-  const [filters, setFilters] = useState({ search: "", status: "all", payment: "all", docType: "all", category: "all", businessType: "all" });
+  const [filters, setFilters] = useState({ search: "", status: "all", payment: "all", docType: "all", category: "all", businessType: "all", exchangeType: "all" });
 
   useEffect(() => {
     api.listRegistryDocuments().then(setRows);
@@ -1292,13 +1334,14 @@ function Registry({ onOpenObject, refreshKey }) {
         && (filters.payment === "all" || row.payment_status === filters.payment)
         && (filters.docType === "all" || row.doc_type === filters.docType)
         && (filters.category === "all" || row.category === filters.category)
-        && (filters.businessType === "all" || row.business_type === filters.businessType);
+        && (filters.businessType === "all" || row.business_type === filters.businessType)
+        && (filters.exchangeType === "all" || row.exchange_type === filters.exchangeType);
     });
     return sortRows(filtered, sort);
   }, [rows, filters, sort]);
 
   return (
-    <section className="panel">
+    <section className="panel panel-fill">
       <div className="registry-filters">
         <label className="search-box">
           <Search size={16} />
@@ -1327,6 +1370,10 @@ function Registry({ onOpenObject, refreshKey }) {
           <option value="all">Любая компания</option>
           {businessTypeOptions.map((type) => <option key={type} value={type}>{businessTypeLabels[type]}</option>)}
         </select>
+        <select value={filters.exchangeType} onChange={(event) => setFilters({ ...filters, exchangeType: event.target.value })}>
+          <option value="all">ЭДО и Физ.</option>
+          {exchangeTypeOptions.map((type) => <option key={type} value={type}>{exchangeTypeLabels[type]}</option>)}
+        </select>
       </div>
 
       <div className="table-wrap">
@@ -1335,6 +1382,7 @@ function Registry({ onOpenObject, refreshKey }) {
             <tr>
               <SortableTh label="Объект" field="object_name" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <th>Компания</th>
+              <SortableTh label="ЭДО/Физ." field="exchange_type" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Договор" field="contract_number" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="ДС" field="annex_label" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Тип" field="doc_type" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
@@ -1353,6 +1401,7 @@ function Registry({ onOpenObject, refreshKey }) {
               <tr key={`${row.source_type}-${row.source_id}-${row.annex_id || 0}`} className="clickable-row" onClick={() => onOpenObject(row.object_id)}>
                 <td className="strong-cell">{row.object_name}</td>
                 <td><BusinessBadge value={row.business_type} /></td>
+                <td><ExchangeBadge value={row.exchange_type} /></td>
                 <td>{row.contract_number || "—"}</td>
                 <td>{row.annex_label || "—"}</td>
                 <td><DocIcon type={row.doc_type} /> {docTypeLabels[row.doc_type]}</td>
@@ -1366,7 +1415,7 @@ function Registry({ onOpenObject, refreshKey }) {
                 <td className="mono">{row.payment_status === "partial" ? formatMoney(row.partial_payment_amount) : "—"}</td>
               </tr>
             ))}
-            {visibleRows.length === 0 && <EmptyRow columns={13} text="По фильтрам ничего не найдено" />}
+            {visibleRows.length === 0 && <EmptyRow columns={14} text="По фильтрам ничего не найдено" />}
           </tbody>
         </table>
       </div>
@@ -1398,6 +1447,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, in
     date: new Date().toISOString().slice(0, 10),
     amount: "",
     vat_percent: "",
+    exchange_type: "",
     status: "na",
     payment_status: "unpaid",
     partial_payment_amount: "",
@@ -1454,6 +1504,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, in
         date: form.date,
         amount: form.amount,
         vat_percent: form.vat_percent,
+        exchange_type: form.exchange_type,
         status: form.status,
         payment_status: form.payment_status,
         partial_payment_amount: form.partial_payment_amount,
@@ -1620,6 +1671,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, in
             <input type="number" min="0" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} />
           </label>
           <VatField value={form.vat_percent} onChange={(value) => setForm({ ...form, vat_percent: value })} />
+          <ExchangeField value={form.exchange_type} onChange={(value) => setForm({ ...form, exchange_type: value })} />
           {category !== "secondary" && (
             <label>
               Аванс, %
@@ -1802,6 +1854,38 @@ function FileDropTarget({ file, onFile, idleTitle, hint }) {
   );
 }
 
+function ExchangeSelect({ value, onCommit }) {
+  return (
+    <EditableValue
+      type="select"
+      value={value || ""}
+      options={exchangeSelectOptions}
+      displayValue={<ExchangeBadge value={value} />}
+      onCommit={(next) => onCommit(next || null)}
+    />
+  );
+}
+
+function ExchangeField({ value, onChange }) {
+  return (
+    <label>
+      ЭДО / Физ.
+      <div className="segmented business-segmented">
+        {exchangeTypeOptions.map((type) => (
+          <button
+            key={type}
+            type="button"
+            className={value === type ? `active exchange-${type}` : ""}
+            onClick={() => onChange(value === type ? "" : type)}
+          >
+            {exchangeTypeLabels[type]}
+          </button>
+        ))}
+      </div>
+    </label>
+  );
+}
+
 function ChoiceCard({ active, icon, title, text, onClick }) {
   return (
     <button type="button" className={`choice-card ${active ? "active" : ""}`} onClick={onClick}>
@@ -1822,6 +1906,25 @@ function BusinessBadge({ value, className = "" }) {
     return <span className={`biztype-chip unset ${className}`} title="Не задано">Не задано</span>;
   }
   return <span className={`biztype-chip ${value} ${className}`}>{businessTypeLabels[value]}</span>;
+}
+
+function ExchangeBadge({ value }) {
+  if (!value) {
+    return <span className="biztype-chip unset" title="Не задано">Не задано</span>;
+  }
+  return <span className={`biztype-chip exchange-${value}`}>{exchangeTypeLabels[value]}</span>;
+}
+
+function ObjectExchangeBadges({ object }) {
+  if (!object.is_edo && !object.is_fiz) {
+    return <span className="biztype-chip unset" title="Не задано">Не задано</span>;
+  }
+  return (
+    <span className="biztype-chip-group">
+      {Boolean(object.is_edo) && <span className="biztype-chip exchange-edo">{exchangeTypeLabels.edo}</span>}
+      {Boolean(object.is_fiz) && <span className="biztype-chip exchange-fiz">{exchangeTypeLabels.fiz}</span>}
+    </span>
+  );
 }
 
 function ObjectTypeBadges({ object }) {

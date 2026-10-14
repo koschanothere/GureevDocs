@@ -365,6 +365,7 @@ function getState() {
     business_type: null,
     advance_percent: null,
     vat_percent: null,
+    exchange_type: null,
     ...proposal,
   }));
   state.contracts = (state.contracts || []).map((contract) => ({
@@ -372,12 +373,14 @@ function getState() {
     business_type: null,
     advance_percent: null,
     vat_percent: null,
+    exchange_type: null,
     ...contract,
   }));
   state.annexes = (state.annexes || []).map((annex) => ({
     partial_payment_amount: null,
     advance_percent: null,
     vat_percent: null,
+    exchange_type: null,
     number: "",
     ...annex,
   }));
@@ -388,6 +391,7 @@ function getState() {
     number: "",
     partial_payment_amount: null,
     vat_percent: null,
+    exchange_type: null,
     ...document,
   }));
   state.objects = (state.objects || []).map((object) => ({
@@ -395,6 +399,8 @@ function getState() {
     address: "",
     is_ooo: 0,
     is_ip: 0,
+    is_edo: 0,
+    is_fiz: 0,
     ...object,
   }));
   return state;
@@ -504,6 +510,24 @@ function cascadeObjectBusinessType(state, objectId, businessType) {
   if (businessType === "ip" && !object.is_ip) object.is_ip = 1;
 }
 
+function normalizeExchangeType(value) {
+  return value === "edo" || value === "fiz" ? value : null;
+}
+
+function cascadeObjectExchangeType(state, objectId, exchangeType) {
+  const object = state.objects.find((item) => item.id === Number(objectId));
+  if (!object) return;
+  if (exchangeType === "edo" && !object.is_edo) object.is_edo = 1;
+  if (exchangeType === "fiz" && !object.is_fiz) object.is_fiz = 1;
+}
+
+function objectIdForParent(state, parentType, parentId) {
+  const contractId = parentType === "annex"
+    ? state.annexes.find((annex) => annex.id === Number(parentId))?.contract_id
+    : Number(parentId);
+  return state.contracts.find((contract) => contract.id === contractId)?.object_id;
+}
+
 function listRegistryDocumentsFromState(state) {
   const rows = [];
   for (const object of state.objects) {
@@ -524,6 +548,7 @@ function listRegistryDocumentsFromState(state) {
         date: proposal.date,
         amount: proposal.amount,
         vat_percent: proposal.vat_percent ?? null,
+        exchange_type: proposal.exchange_type ?? null,
         status: proposal.status,
         payment_status: "unpaid",
         partial_payment_amount: null,
@@ -550,6 +575,7 @@ function listRegistryDocumentsFromState(state) {
         date: contract.date,
         amount: contract.amount,
         vat_percent: contract.vat_percent ?? null,
+        exchange_type: contract.exchange_type ?? null,
         status: contract.status,
         payment_status: contract.payment_status,
         partial_payment_amount: contract.partial_payment_amount,
@@ -575,6 +601,7 @@ function listRegistryDocumentsFromState(state) {
           date: annex.date,
           amount: annex.amount,
           vat_percent: annex.vat_percent ?? null,
+          exchange_type: annex.exchange_type ?? null,
           status: annex.status,
           payment_status: annex.payment_status,
           partial_payment_amount: annex.partial_payment_amount,
@@ -674,6 +701,8 @@ function makeMockApi() {
         folder_created_date: payload.folder_created_date || null,
         is_ooo: payload.is_ooo ? 1 : 0,
         is_ip: payload.is_ip ? 1 : 0,
+        is_edo: payload.is_edo ? 1 : 0,
+        is_fiz: payload.is_fiz ? 1 : 0,
         created_at: now(),
       };
       state.objects.push(object);
@@ -705,8 +734,9 @@ function makeMockApi() {
     },
     async createCommercialProposal(payload) {
       const state = getState();
-      const proposal = { id: nextId(state), ...payload, created_at: now(), advance_percent: normalizePercent(payload.advance_percent), vat_percent: normalizeVat(payload.vat_percent), file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
+      const proposal = { id: nextId(state), ...payload, created_at: now(), advance_percent: normalizePercent(payload.advance_percent), vat_percent: normalizeVat(payload.vat_percent), exchange_type: normalizeExchangeType(payload.exchange_type), file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
       state.commercial_proposals.push(proposal);
+      cascadeObjectExchangeType(state, proposal.object_id, proposal.exchange_type);
       cascadeObjectBusinessType(state, proposal.object_id, proposal.business_type);
       setState(state);
       return proposal;
@@ -724,11 +754,13 @@ function makeMockApi() {
           business_type: payload.business_type !== undefined ? (payload.business_type || null) : state.commercial_proposals[index].business_type,
           advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : state.commercial_proposals[index].advance_percent,
           vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : state.commercial_proposals[index].vat_percent,
+          exchange_type: payload.exchange_type !== undefined ? normalizeExchangeType(payload.exchange_type) : state.commercial_proposals[index].exchange_type,
           comment: payload.comment || "",
           file_path: payload.sourceFilePath ? payload.sourceFilePath : state.commercial_proposals[index].file_path,
           original_filename: payload.sourceFilePath ? payload.original_filename : state.commercial_proposals[index].original_filename,
         };
         cascadeObjectBusinessType(state, state.commercial_proposals[index].object_id, state.commercial_proposals[index].business_type);
+        cascadeObjectExchangeType(state, state.commercial_proposals[index].object_id, state.commercial_proposals[index].exchange_type);
       }
       setState(state);
       return state.commercial_proposals[index] || null;
@@ -759,6 +791,9 @@ function makeMockApi() {
         vat_percent: payload.vat_percent !== undefined && payload.vat_percent !== ""
           ? normalizeVat(payload.vat_percent)
           : proposal.vat_percent ?? null,
+        exchange_type: payload.exchange_type !== undefined && payload.exchange_type !== ""
+          ? normalizeExchangeType(payload.exchange_type)
+          : proposal.exchange_type ?? null,
         comment: payload.comment || proposal.comment || "",
         comment_color: payload.comment_color || "pink",
         file_path: payload.sourceFilePath || null,
@@ -767,6 +802,7 @@ function makeMockApi() {
       };
       state.contracts.push(contract);
       cascadeObjectBusinessType(state, contract.object_id, contract.business_type);
+      cascadeObjectExchangeType(state, contract.object_id, contract.exchange_type);
       state.secondary_documents.push({
         id: nextId(state),
         parent_type: "contract",
@@ -775,6 +811,7 @@ function makeMockApi() {
         date: proposal.date,
         amount: proposal.amount,
         vat_percent: proposal.vat_percent ?? null,
+        exchange_type: proposal.exchange_type ?? null,
         status: proposal.status,
         payment_status: "unpaid",
         partial_payment_amount: null,
@@ -793,6 +830,8 @@ function makeMockApi() {
       contract.business_type = contract.business_type || null;
       contract.advance_percent = normalizePercent(contract.advance_percent);
       contract.vat_percent = normalizeVat(contract.vat_percent);
+      contract.exchange_type = normalizeExchangeType(contract.exchange_type);
+      cascadeObjectExchangeType(state, contract.object_id, contract.exchange_type);
       state.contracts.push(contract);
       cascadeObjectBusinessType(state, contract.object_id, contract.business_type);
       setState(state);
@@ -811,12 +850,14 @@ function makeMockApi() {
           business_type: payload.business_type !== undefined ? (payload.business_type || null) : state.contracts[index].business_type,
           advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : state.contracts[index].advance_percent,
           vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : state.contracts[index].vat_percent,
+          exchange_type: payload.exchange_type !== undefined ? normalizeExchangeType(payload.exchange_type) : state.contracts[index].exchange_type,
           comment: payload.comment || "",
           comment_color: payload.comment_color || "pink",
           file_path: payload.sourceFilePath ? payload.sourceFilePath : state.contracts[index].file_path,
           original_filename: payload.sourceFilePath ? payload.original_filename : state.contracts[index].original_filename,
         };
         cascadeObjectBusinessType(state, state.contracts[index].object_id, state.contracts[index].business_type);
+        cascadeObjectExchangeType(state, state.contracts[index].object_id, state.contracts[index].exchange_type);
       }
       setState(state);
       return index >= 0 ? withComputedPayment(state, state.contracts[index], "contract") : null;
@@ -840,6 +881,8 @@ function makeMockApi() {
       const annex = { id: nextId(state), ...payload, number, created_at: now(), payment_status: "unpaid", partial_payment_amount: null, file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
       annex.advance_percent = normalizePercent(annex.advance_percent);
       annex.vat_percent = normalizeVat(annex.vat_percent);
+      annex.exchange_type = normalizeExchangeType(annex.exchange_type);
+      cascadeObjectExchangeType(state, objectIdForParent(state, "contract", annex.contract_id), annex.exchange_type);
       state.annexes.push(annex);
       setState(state);
       return withComputedPayment(state, annex, "annex");
@@ -856,9 +899,11 @@ function makeMockApi() {
           status: payload.status,
           advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : state.annexes[index].advance_percent,
           vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : state.annexes[index].vat_percent,
+          exchange_type: payload.exchange_type !== undefined ? normalizeExchangeType(payload.exchange_type) : state.annexes[index].exchange_type,
           file_path: payload.sourceFilePath ? payload.sourceFilePath : state.annexes[index].file_path,
           original_filename: payload.sourceFilePath ? payload.original_filename : state.annexes[index].original_filename,
         };
+        cascadeObjectExchangeType(state, objectIdForParent(state, "contract", state.annexes[index].contract_id), state.annexes[index].exchange_type);
       }
       setState(state);
       return index >= 0 ? withComputedPayment(state, state.annexes[index], "annex") : null;
@@ -879,11 +924,13 @@ function makeMockApi() {
         number: payload.number || "",
         partial_payment_amount: paymentPartialAmount(payload),
         vat_percent: normalizeVat(payload.vat_percent),
+        exchange_type: normalizeExchangeType(payload.exchange_type),
         file_path: payload.sourceFilePath || null,
         original_filename: payload.original_filename || "demo-document.pdf",
         created_at: now(),
       };
       state.secondary_documents.push(document);
+      cascadeObjectExchangeType(state, objectIdForParent(state, document.parent_type, document.parent_id), document.exchange_type);
       setState(state);
       return document;
     },
@@ -901,9 +948,12 @@ function makeMockApi() {
           payment_status: payload.payment_status,
           partial_payment_amount: paymentPartialAmount(payload),
           vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : state.secondary_documents[index].vat_percent,
+          exchange_type: payload.exchange_type !== undefined ? normalizeExchangeType(payload.exchange_type) : state.secondary_documents[index].exchange_type,
           file_path: payload.sourceFilePath ? payload.sourceFilePath : state.secondary_documents[index].file_path,
           original_filename: payload.sourceFilePath ? payload.original_filename : state.secondary_documents[index].original_filename,
         };
+        const updated = state.secondary_documents[index];
+        cascadeObjectExchangeType(state, objectIdForParent(state, updated.parent_type, updated.parent_id), updated.exchange_type);
       }
       setState(state);
       return state.secondary_documents[index] || null;

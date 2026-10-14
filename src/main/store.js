@@ -210,6 +210,14 @@ function createStore(userDataPath) {
     return number;
   }
 
+  // A КП that gains a file is considered approved. Later statuses (signed, annulled)
+  // and an existing approval are left alone.
+  const STATUSES_APPROVED_ON_FILE = ["na", "pending", "not_sent"];
+
+  function statusWhenFileAttached(status) {
+    return STATUSES_APPROVED_ON_FILE.includes(status) ? "approved" : status;
+  }
+
   function paymentPartialAmount(payload) {
     if (payload.payment_status === "partial") return normalizeMoney(payload.partial_payment_amount);
     if (payload.payment_status === "paid") return normalizeMoney(payload.amount);
@@ -483,7 +491,7 @@ function createStore(userDataPath) {
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
       vat_percent: normalizeVat(payload.vat_percent),
-      status: payload.status,
+      status: file.file_path ? statusWhenFileAttached(payload.status) : payload.status,
       business_type: businessType,
       exchange_type: exchangeType,
       advance_percent: normalizePercent(payload.advance_percent),
@@ -523,7 +531,7 @@ function createStore(userDataPath) {
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
       vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : current.vat_percent,
-      status: payload.status,
+      status: payload.sourceFilePath ? statusWhenFileAttached(payload.status) : payload.status,
       business_type: businessType,
       exchange_type: exchangeType,
       advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : current.advance_percent,

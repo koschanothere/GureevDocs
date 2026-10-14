@@ -28,6 +28,8 @@ const statusLabels = {
   approved: "Согласован",
   pending: "Ждёт согласования",
   not_sent: "Не отправлен",
+  signed: "Подписан",
+  annulled: "Аннулирован",
 };
 
 const paymentLabels = {
@@ -60,7 +62,7 @@ const businessTypeLabels = {
 };
 
 const docTypeOptions = ["commercial_proposal", "act", "invoice", "invoice_facture", "report", "outgoing_letter", "order", "waybill"];
-const statusOptions = ["na", "approved", "pending", "not_sent"];
+const statusOptions = ["na", "approved", "pending", "not_sent", "signed", "annulled"];
 const paymentOptions = ["paid", "partial", "unpaid"];
 const commentColorOptions = ["pink", "violet"];
 const businessTypeOptions = ["ooo", "ip"];
@@ -663,6 +665,7 @@ function ObjectDetails({ objectId, businessFilter, refreshKey, onBack, onOpenWiz
             <button className={proposalSort.key === "date" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "date"))}>Дата {proposalSort.key === "date" ? sortArrow(proposalSort) : ""}</button>
             <button className={proposalSort.key === "amount" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "amount"))}>Сумма {proposalSort.key === "amount" ? sortArrow(proposalSort) : ""}</button>
             <button className={proposalSort.key === "advance_percent" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "advance_percent"))}>Аванс {proposalSort.key === "advance_percent" ? sortArrow(proposalSort) : ""}</button>
+            <button className={proposalSort.key === "vat_percent" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "vat_percent"))}>НДС {proposalSort.key === "vat_percent" ? sortArrow(proposalSort) : ""}</button>
             <button className={proposalSort.key === "status" ? "active" : ""} onClick={() => setProposalSort(nextSort(proposalSort, "status"))}>Статус {proposalSort.key === "status" ? sortArrow(proposalSort) : ""}</button>
           </div>
         </div>
@@ -683,6 +686,7 @@ function ObjectDetails({ objectId, businessFilter, refreshKey, onBack, onOpenWiz
             <button className={contractSort.key === "date" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "date"))}>Дата {contractSort.key === "date" ? sortArrow(contractSort) : ""}</button>
             <button className={contractSort.key === "amount" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "amount"))}>Сумма {contractSort.key === "amount" ? sortArrow(contractSort) : ""}</button>
             <button className={contractSort.key === "advance_percent" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "advance_percent"))}>Аванс {contractSort.key === "advance_percent" ? sortArrow(contractSort) : ""}</button>
+            <button className={contractSort.key === "vat_percent" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "vat_percent"))}>НДС {contractSort.key === "vat_percent" ? sortArrow(contractSort) : ""}</button>
             <button className={contractSort.key === "status" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "status"))}>Статус {contractSort.key === "status" ? sortArrow(contractSort) : ""}</button>
             <button className={contractSort.key === "payment_status" ? "active" : ""} onClick={() => setContractSort(nextSort(contractSort, "payment_status"))}>Оплата {contractSort.key === "payment_status" ? sortArrow(contractSort) : ""}</button>
           </div>
@@ -735,6 +739,14 @@ function ObjectDetails({ objectId, businessFilter, refreshKey, onBack, onOpenWiz
                     value={contract.advance_percent ?? ""}
                     displayValue={formatPercent(contract.advance_percent)}
                     onCommit={(value) => updateContract(contract, { advance_percent: value })}
+                  />
+                  <EditableValue
+                    className="mono"
+                    type="number"
+                    inputProps={vatInputProps}
+                    value={contract.vat_percent ?? ""}
+                    displayValue={formatPercent(contract.vat_percent)}
+                    onCommit={(value) => updateContract(contract, { vat_percent: value })}
                   />
                   <EditableValue
                     type="select"
@@ -829,6 +841,7 @@ function ProposalList({ proposals, onUpdate, onDelete, onCreateContract, onRepla
         <span>Дата</span>
         <span>Сумма</span>
         <span>Аванс</span>
+        <span>НДС</span>
         <span>Статус</span>
         <span>Комментарий</span>
         <span>Файл</span>
@@ -871,6 +884,14 @@ function ProposalList({ proposals, onUpdate, onDelete, onCreateContract, onRepla
             value={proposal.advance_percent ?? ""}
             displayValue={formatPercent(proposal.advance_percent)}
             onCommit={(value) => onUpdate(proposal, { advance_percent: value })}
+          />
+          <EditableValue
+            className="mono"
+            type="number"
+            inputProps={vatInputProps}
+            value={proposal.vat_percent ?? ""}
+            displayValue={formatPercent(proposal.vat_percent)}
+            onCommit={(value) => onUpdate(proposal, { vat_percent: value })}
           />
           <EditableValue
             type="select"
@@ -947,6 +968,7 @@ function ProposalContractModal({ proposal, onClose, onSaved }) {
     number: "",
     date: new Date().toISOString().slice(0, 10),
     amount: proposal.amount ?? "",
+    vat_percent: proposal.vat_percent ?? "",
     status: "approved",
     payment_status: "unpaid",
     partial_payment_amount: "",
@@ -955,11 +977,6 @@ function ProposalContractModal({ proposal, onClose, onSaved }) {
     comment_color: "pink",
   });
   const [error, setError] = useState("");
-
-  async function chooseFile() {
-    const selected = await api.selectFile();
-    if (selected) setFile(selected);
-  }
 
   async function submit(event) {
     event.preventDefault();
@@ -992,11 +1009,7 @@ function ProposalContractModal({ proposal, onClose, onSaved }) {
         </div>
         {error && <div className="notice error">{error}</div>}
         <div className="form-section">
-          <button className="upload-target compact-upload" type="button" onClick={chooseFile}>
-            <Upload size={22} />
-            <strong>{file ? file.originalFilename : "Выбрать файл договора"}</strong>
-            <span>Файл договора можно приложить сразу, КП перенесётся под договор автоматически</span>
-          </button>
+          <FileDropTarget file={file} onFile={setFile} idleTitle="Выбрать или перетащить файл договора" hint="Файл договора можно приложить сразу, КП перенесётся под договор автоматически" />
         </div>
         <div className="form-section wizard-grid">
           <label>
@@ -1018,6 +1031,7 @@ function ProposalContractModal({ proposal, onClose, onSaved }) {
             Сумма
             <input type="number" min="0" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} />
           </label>
+          <VatField value={form.vat_percent} onChange={(value) => setForm({ ...form, vat_percent: value })} />
           <label>
             Аванс, %
             <input type="number" min="0" max="100" step="1" value={form.advance_percent} onChange={(event) => setForm({ ...form, advance_percent: event.target.value })} />
@@ -1058,6 +1072,7 @@ function AnnexList({ annexes, sort, onSort, expandedAnnexes, onToggleAnnex, onUp
         <SortableDiv label="Дата" field="date" sort={sort} onSort={onSort} />
         <SortableDiv label="Сумма" field="amount" sort={sort} onSort={onSort} />
         <SortableDiv label="Аванс" field="advance_percent" sort={sort} onSort={onSort} />
+        <SortableDiv label="НДС" field="vat_percent" sort={sort} onSort={onSort} />
         <SortableDiv label="Статус" field="status" sort={sort} onSort={onSort} />
         <SortableDiv label="Оплата" field="payment_status" sort={sort} onSort={onSort} />
         <SortableDiv label="Оплачено" field="partial_payment_amount" sort={sort} onSort={onSort} />
@@ -1101,6 +1116,14 @@ function AnnexList({ annexes, sort, onSort, expandedAnnexes, onToggleAnnex, onUp
                 value={annex.advance_percent ?? ""}
                 displayValue={formatPercent(annex.advance_percent)}
                 onCommit={(value) => onUpdateAnnex(annex, { advance_percent: value })}
+              />
+              <EditableValue
+                className="mono"
+                type="number"
+                inputProps={vatInputProps}
+                value={annex.vat_percent ?? ""}
+                displayValue={formatPercent(annex.vat_percent)}
+                onCommit={(value) => onUpdateAnnex(annex, { vat_percent: value })}
               />
               <EditableValue
                 type="select"
@@ -1155,6 +1178,7 @@ function SecondaryDocumentsTable({ documents, onUpdate, onReplaceFile, onDelete 
             <SortableTh label="Номер" field="number" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
             <SortableTh label="Дата" field="date" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
             <SortableTh label="Сумма" field="amount" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
+            <SortableTh label="НДС" field="vat_percent" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
             <SortableTh label="Статус" field="status" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
             <SortableTh label="Оплата" field="payment_status" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
             <SortableTh label="Оплачено" field="partial_payment_amount" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
@@ -1203,6 +1227,16 @@ function SecondaryDocumentsTable({ documents, onUpdate, onReplaceFile, onDelete 
               </td>
               <td>
                 <EditableValue
+                  className="mono"
+                  type="number"
+                  inputProps={vatInputProps}
+                  value={doc.vat_percent ?? ""}
+                  displayValue={formatPercent(doc.vat_percent)}
+                  onCommit={(value) => onUpdate(doc, { vat_percent: value })}
+                />
+              </td>
+              <td>
+                <EditableValue
                   type="select"
                   value={doc.status}
                   options={statusOptions.map((value) => ({ value, label: statusLabels[value] }))}
@@ -1233,7 +1267,7 @@ function SecondaryDocumentsTable({ documents, onUpdate, onReplaceFile, onDelete 
               </td>
             </tr>
           ))}
-          {rows.length === 0 && <EmptyRow columns={10} text="Документов нет" />}
+          {rows.length === 0 && <EmptyRow columns={11} text="Документов нет" />}
         </tbody>
       </table>
     </div>
@@ -1308,6 +1342,7 @@ function Registry({ onOpenObject, refreshKey }) {
               <SortableTh label="Категория" field="category" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Дата" field="date" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Сумма" field="amount" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
+              <SortableTh label="НДС" field="vat_percent" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Статус" field="status" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Оплата" field="payment_status" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
               <SortableTh label="Оплачено" field="partial_payment_amount" sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
@@ -1325,12 +1360,13 @@ function Registry({ onOpenObject, refreshKey }) {
                 <td>{categoryLabels[row.category]}</td>
                 <td className="mono">{formatDate(row.date)}</td>
                 <td className="mono">{formatMoney(row.amount)}</td>
+                <td className="mono">{formatPercent(row.vat_percent)}</td>
                 <td><Badge type="status" value={row.status} /></td>
                 <td><Badge type="payment" value={row.payment_status} /></td>
                 <td className="mono">{row.payment_status === "partial" ? formatMoney(row.partial_payment_amount) : "—"}</td>
               </tr>
             ))}
-            {visibleRows.length === 0 && <EmptyRow columns={12} text="По фильтрам ничего не найдено" />}
+            {visibleRows.length === 0 && <EmptyRow columns={13} text="По фильтрам ничего не найдено" />}
           </tbody>
         </table>
       </div>
@@ -1361,6 +1397,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, in
     number: "",
     date: new Date().toISOString().slice(0, 10),
     amount: "",
+    vat_percent: "",
     status: "na",
     payment_status: "unpaid",
     partial_payment_amount: "",
@@ -1401,11 +1438,6 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, in
     else if (selectedObject.is_ip && !selectedObject.is_ooo) setBusinessType("ip");
   }, [needsBusinessType, businessType, selectedObject]);
 
-  async function chooseFile() {
-    const selected = await api.selectFile();
-    if (selected) setFile(selected);
-  }
-
   function canSave() {
     if (!objectId) return false;
     if (needsBusinessType) return Boolean(businessType);
@@ -1421,6 +1453,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, in
       const base = {
         date: form.date,
         amount: form.amount,
+        vat_percent: form.vat_percent,
         status: form.status,
         payment_status: form.payment_status,
         partial_payment_amount: form.partial_payment_amount,
@@ -1483,11 +1516,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, in
         {error && <div className="notice error">{error}</div>}
 
         <div className="form-section">
-          <button className="upload-target compact-upload" type="button" onClick={chooseFile}>
-            <Upload size={22} />
-            <strong>{file ? file.originalFilename : "Выбрать файл"}</strong>
-            <span>Файл можно добавить сейчас или оставить запись только с атрибутами</span>
-          </button>
+          <FileDropTarget file={file} onFile={setFile} idleTitle="Выбрать или перетащить файл" hint="Файл можно добавить сейчас или оставить запись только с атрибутами" />
         </div>
 
         <div className="form-section choice-grid">
@@ -1590,6 +1619,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, in
             Сумма
             <input type="number" min="0" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} />
           </label>
+          <VatField value={form.vat_percent} onChange={(value) => setForm({ ...form, vat_percent: value })} />
           {category !== "secondary" && (
             <label>
               Аванс, %
@@ -1630,7 +1660,7 @@ function DocumentWizard({ initialObjectId, initialContractId, initialAnnexId, in
   );
 }
 
-function EditableValue({ value, displayValue, emptyValue = "—", prefix = "", type = "text", options = [], className = "", onCommit }) {
+function EditableValue({ value, displayValue, emptyValue = "—", prefix = "", type = "text", options = [], className = "", onCommit, inputProps = {} }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ?? "");
 
@@ -1677,6 +1707,7 @@ function EditableValue({ value, displayValue, emptyValue = "—", prefix = "", t
         type={type}
         value={draft}
         autoFocus
+        {...inputProps}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => commit()}
         onKeyDown={(event) => {
@@ -1691,6 +1722,82 @@ function EditableValue({ value, displayValue, emptyValue = "—", prefix = "", t
   return (
     <button className={`editable-value ${className}`} type="button" title="Нажмите, чтобы редактировать" onClick={() => setEditing(true)}>
       {content}
+    </button>
+  );
+}
+
+const vatInputProps = { min: 0, max: 100, step: 1 };
+
+function VatField({ value, onChange }) {
+  return (
+    <label>
+      НДС
+      <span className="input-suffix">
+        <input type="number" min="0" max="100" step="1" value={value} onChange={(event) => onChange(event.target.value)} />
+        <span aria-hidden="true">%</span>
+      </span>
+    </label>
+  );
+}
+
+function FileDropTarget({ file, onFile, idleTitle, hint }) {
+  const [dragging, setDragging] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  async function choose() {
+    const selected = await api.selectFile();
+    if (selected) {
+      setNotice("");
+      onFile(selected);
+    }
+  }
+
+  function carriesFiles(event) {
+    return Array.from(event.dataTransfer?.types || []).includes("Files");
+  }
+
+  function handleDragOver(event) {
+    if (!carriesFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setDragging(true);
+  }
+
+  function handleDragLeave(event) {
+    if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false);
+  }
+
+  function handleDrop(event) {
+    if (!carriesFiles(event)) return;
+    event.preventDefault();
+    setDragging(false);
+    const files = Array.from(event.dataTransfer.files || []);
+    if (files.length === 0) return;
+    if (event.dataTransfer.items?.[0]?.webkitGetAsEntry?.()?.isDirectory) {
+      setNotice("Перетащите файл, а не папку");
+      return;
+    }
+    const sourceFilePath = api.getPathForFile(files[0]);
+    if (!sourceFilePath) {
+      setNotice("Не удалось получить путь к файлу, выберите его кнопкой");
+      return;
+    }
+    setNotice(files.length > 1 ? "Принят только первый файл" : "");
+    onFile({ sourceFilePath, originalFilename: files[0].name });
+  }
+
+  return (
+    <button
+      className={`upload-target compact-upload${dragging ? " drag-over" : ""}`}
+      type="button"
+      onClick={choose}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      <Upload size={22} />
+      <strong>{dragging ? "Отпустите, чтобы добавить файл" : file ? file.originalFilename : idleTitle}</strong>
+      <span>{notice || hint}</span>
     </button>
   );
 }

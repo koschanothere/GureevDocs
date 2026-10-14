@@ -6,17 +6,17 @@ const Database = require("better-sqlite3");
 const { parse } = require("csv-parse/sync");
 const { stringify } = require("csv-stringify/sync");
 
-const APPROVAL_STATUSES = ["na", "approved", "pending", "not_sent"];
+const APPROVAL_STATUSES = ["na", "approved", "pending", "not_sent", "signed", "annulled"];
 const PAYMENT_STATUSES = ["paid", "partial", "unpaid"];
 const COMMENT_COLORS = ["pink", "violet"];
 const BUSINESS_TYPES = ["ooo", "ip"];
 const DOC_TYPES = ["commercial_proposal", "act", "invoice", "invoice_facture", "report", "outgoing_letter", "order", "waybill"];
 const TABLE_COLUMNS = {
   objects: ["id", "name", "customer", "address", "comment", "folder_created_date", "is_ooo", "is_ip", "created_at"],
-  commercial_proposals: ["id", "object_id", "number", "date", "amount", "status", "business_type", "advance_percent", "comment", "file_path", "original_filename", "created_at"],
-  contracts: ["id", "object_id", "number", "date", "amount", "status", "payment_status", "partial_payment_amount", "business_type", "advance_percent", "comment", "comment_color", "file_path", "original_filename", "created_at"],
-  annexes: ["id", "contract_id", "number", "date", "amount", "status", "payment_status", "partial_payment_amount", "advance_percent", "file_path", "original_filename", "created_at"],
-  secondary_documents: ["id", "parent_type", "parent_id", "doc_type", "number", "date", "amount", "status", "payment_status", "partial_payment_amount", "file_path", "original_filename", "created_at"],
+  commercial_proposals: ["id", "object_id", "number", "date", "amount", "vat_percent", "status", "business_type", "advance_percent", "comment", "file_path", "original_filename", "created_at"],
+  contracts: ["id", "object_id", "number", "date", "amount", "vat_percent", "status", "payment_status", "partial_payment_amount", "business_type", "advance_percent", "comment", "comment_color", "file_path", "original_filename", "created_at"],
+  annexes: ["id", "contract_id", "number", "date", "amount", "vat_percent", "status", "payment_status", "partial_payment_amount", "advance_percent", "file_path", "original_filename", "created_at"],
+  secondary_documents: ["id", "parent_type", "parent_id", "doc_type", "number", "date", "amount", "vat_percent", "status", "payment_status", "partial_payment_amount", "file_path", "original_filename", "created_at"],
 };
 const FILE_TABLES = ["commercial_proposals", "contracts", "annexes", "secondary_documents"];
 
@@ -92,6 +92,8 @@ function createStore(userDataPath) {
     for (const column of TABLE_COLUMNS[table]) {
       if (column === "amount" || column === "partial_payment_amount" || column === "advance_percent") {
         result[column] = normalizeMoney(row[column]);
+      } else if (column === "vat_percent") {
+        result[column] = normalizeVat(row[column]);
       } else if (column.endsWith("_id") || column === "id" || column === "parent_id") {
         result[column] = Number(row[column]);
       } else if (column === "is_ooo" || column === "is_ip") {
@@ -173,6 +175,14 @@ function createStore(userDataPath) {
     const number = Number(value);
     if (Number.isNaN(number)) throw new Error("Аванс должен быть числом");
     if (number < 0 || number > 100) throw new Error("Аванс должен быть от 0 до 100");
+    return number;
+  }
+
+  function normalizeVat(value) {
+    if (value === "" || value === null || value === undefined) return null;
+    const number = Number(value);
+    if (!Number.isInteger(number)) throw new Error("НДС должен быть целым числом");
+    if (number < 0 || number > 100) throw new Error("НДС должен быть от 0 до 100");
     return number;
   }
 
@@ -433,14 +443,15 @@ function createStore(userDataPath) {
     const file = storeFile(payload.sourceFilePath, payload.original_filename);
     const info = db.prepare(`
       INSERT INTO commercial_proposals
-        (object_id, number, date, amount, status, business_type, advance_percent, comment, file_path, original_filename, created_at)
+        (object_id, number, date, amount, vat_percent, status, business_type, advance_percent, comment, file_path, original_filename, created_at)
       VALUES
-        (@object_id, @number, @date, @amount, @status, @business_type, @advance_percent, @comment, @file_path, @original_filename, @created_at)
+        (@object_id, @number, @date, @amount, @vat_percent, @status, @business_type, @advance_percent, @comment, @file_path, @original_filename, @created_at)
     `).run({
       object_id: payload.object_id,
       number: payload.number || "",
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
+      vat_percent: normalizeVat(payload.vat_percent),
       status: payload.status,
       business_type: businessType,
       advance_percent: normalizePercent(payload.advance_percent),
@@ -463,6 +474,7 @@ function createStore(userDataPath) {
       SET number = @number,
           date = @date,
           amount = @amount,
+          vat_percent = @vat_percent,
           status = @status,
           business_type = @business_type,
           advance_percent = @advance_percent,
@@ -475,6 +487,7 @@ function createStore(userDataPath) {
       number: payload.number || "",
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
+      vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : current.vat_percent,
       status: payload.status,
       business_type: businessType,
       advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : current.advance_percent,
@@ -505,17 +518,21 @@ function createStore(userDataPath) {
       const advancePercent = payload.advance_percent !== undefined && payload.advance_percent !== ""
         ? normalizePercent(payload.advance_percent)
         : proposal.advance_percent;
+      const vatPercent = payload.vat_percent !== undefined && payload.vat_percent !== ""
+        ? normalizeVat(payload.vat_percent)
+        : proposal.vat_percent;
       const file = storeFile(payload.sourceFilePath, payload.original_filename);
       const contractInfo = db.prepare(`
         INSERT INTO contracts
-          (object_id, number, date, amount, status, payment_status, partial_payment_amount, business_type, advance_percent, comment, comment_color, file_path, original_filename, created_at)
+          (object_id, number, date, amount, vat_percent, status, payment_status, partial_payment_amount, business_type, advance_percent, comment, comment_color, file_path, original_filename, created_at)
         VALUES
-          (@object_id, @number, @date, @amount, @status, 'unpaid', NULL, @business_type, @advance_percent, @comment, @comment_color, @file_path, @original_filename, @created_at)
+          (@object_id, @number, @date, @amount, @vat_percent, @status, 'unpaid', NULL, @business_type, @advance_percent, @comment, @comment_color, @file_path, @original_filename, @created_at)
       `).run({
         object_id: proposal.object_id,
         number: payload.number || "",
         date: payload.date || null,
         amount: normalizeMoney(payload.amount),
+        vat_percent: vatPercent,
         status: payload.status,
         business_type: businessType,
         advance_percent: advancePercent,
@@ -529,14 +546,15 @@ function createStore(userDataPath) {
 
       db.prepare(`
         INSERT INTO secondary_documents
-          (parent_type, parent_id, doc_type, number, date, amount, status, payment_status, partial_payment_amount, file_path, original_filename, created_at)
+          (parent_type, parent_id, doc_type, number, date, amount, vat_percent, status, payment_status, partial_payment_amount, file_path, original_filename, created_at)
         VALUES
-          ('contract', @parent_id, 'commercial_proposal', @number, @date, @amount, @status, 'unpaid', NULL, @file_path, @original_filename, @created_at)
+          ('contract', @parent_id, 'commercial_proposal', @number, @date, @amount, @vat_percent, @status, 'unpaid', NULL, @file_path, @original_filename, @created_at)
       `).run({
         parent_id: contractInfo.lastInsertRowid,
         number: proposal.number || "",
         date: proposal.date || null,
         amount: normalizeMoney(proposal.amount),
+        vat_percent: proposal.vat_percent ?? null,
         status: proposal.status,
         file_path: proposal.file_path || null,
         original_filename: proposal.original_filename || null,
@@ -557,14 +575,15 @@ function createStore(userDataPath) {
     const file = storeFile(payload.sourceFilePath, payload.original_filename);
     const info = db.prepare(`
       INSERT INTO contracts
-        (object_id, number, date, amount, status, payment_status, partial_payment_amount, business_type, advance_percent, comment, comment_color, file_path, original_filename, created_at)
+        (object_id, number, date, amount, vat_percent, status, payment_status, partial_payment_amount, business_type, advance_percent, comment, comment_color, file_path, original_filename, created_at)
       VALUES
-        (@object_id, @number, @date, @amount, @status, 'unpaid', NULL, @business_type, @advance_percent, @comment, @comment_color, @file_path, @original_filename, @created_at)
+        (@object_id, @number, @date, @amount, @vat_percent, @status, 'unpaid', NULL, @business_type, @advance_percent, @comment, @comment_color, @file_path, @original_filename, @created_at)
     `).run({
       object_id: payload.object_id,
       number: payload.number || "",
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
+      vat_percent: normalizeVat(payload.vat_percent),
       status: payload.status,
       business_type: businessType,
       advance_percent: normalizePercent(payload.advance_percent),
@@ -589,6 +608,7 @@ function createStore(userDataPath) {
       SET number = @number,
           date = @date,
           amount = @amount,
+          vat_percent = @vat_percent,
           status = @status,
           business_type = @business_type,
           advance_percent = @advance_percent,
@@ -602,6 +622,7 @@ function createStore(userDataPath) {
       number: payload.number || "",
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
+      vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : current.vat_percent,
       status: payload.status,
       business_type: businessType,
       advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : current.advance_percent,
@@ -627,14 +648,15 @@ function createStore(userDataPath) {
     const file = storeFile(payload.sourceFilePath, payload.original_filename);
     const info = db.prepare(`
       INSERT INTO annexes
-        (contract_id, number, date, amount, status, payment_status, partial_payment_amount, advance_percent, file_path, original_filename, created_at)
+        (contract_id, number, date, amount, vat_percent, status, payment_status, partial_payment_amount, advance_percent, file_path, original_filename, created_at)
       VALUES
-        (@contract_id, @number, @date, @amount, @status, 'unpaid', NULL, @advance_percent, @file_path, @original_filename, @created_at)
+        (@contract_id, @number, @date, @amount, @vat_percent, @status, 'unpaid', NULL, @advance_percent, @file_path, @original_filename, @created_at)
     `).run({
       contract_id: payload.contract_id,
       number,
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
+      vat_percent: normalizeVat(payload.vat_percent),
       status: payload.status,
       advance_percent: normalizePercent(payload.advance_percent),
       file_path: file.file_path,
@@ -653,6 +675,7 @@ function createStore(userDataPath) {
       SET number = @number,
           date = @date,
           amount = @amount,
+          vat_percent = @vat_percent,
           status = @status,
           advance_percent = @advance_percent,
           file_path = @file_path,
@@ -663,6 +686,7 @@ function createStore(userDataPath) {
       number: payload.number !== undefined ? String(payload.number ?? "").trim() : current.number,
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
+      vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : current.vat_percent,
       status: payload.status,
       advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : current.advance_percent,
       file_path: file.file_path,
@@ -684,9 +708,9 @@ function createStore(userDataPath) {
     const file = storeFile(payload.sourceFilePath, payload.original_filename);
     const info = db.prepare(`
       INSERT INTO secondary_documents
-        (parent_type, parent_id, doc_type, number, date, amount, status, payment_status, partial_payment_amount, file_path, original_filename, created_at)
+        (parent_type, parent_id, doc_type, number, date, amount, vat_percent, status, payment_status, partial_payment_amount, file_path, original_filename, created_at)
       VALUES
-        (@parent_type, @parent_id, @doc_type, @number, @date, @amount, @status, @payment_status, @partial_payment_amount, @file_path, @original_filename, @created_at)
+        (@parent_type, @parent_id, @doc_type, @number, @date, @amount, @vat_percent, @status, @payment_status, @partial_payment_amount, @file_path, @original_filename, @created_at)
     `).run({
       parent_type: payload.parent_type,
       parent_id: payload.parent_id,
@@ -694,6 +718,7 @@ function createStore(userDataPath) {
       number: payload.number || "",
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
+      vat_percent: normalizeVat(payload.vat_percent),
       status: payload.status,
       payment_status: payload.payment_status,
       partial_payment_amount: paymentPartialAmount(payload),
@@ -716,6 +741,7 @@ function createStore(userDataPath) {
           number = @number,
           date = @date,
           amount = @amount,
+          vat_percent = @vat_percent,
           status = @status,
           payment_status = @payment_status,
           partial_payment_amount = @partial_payment_amount,
@@ -728,6 +754,7 @@ function createStore(userDataPath) {
       number: payload.number || "",
       date: payload.date || null,
       amount: normalizeMoney(payload.amount),
+      vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : current.vat_percent,
       status: payload.status,
       payment_status: payload.payment_status,
       partial_payment_amount: paymentPartialAmount(payload),
@@ -886,6 +913,7 @@ function createStore(userDataPath) {
           cp.business_type,
           cp.date,
           cp.amount,
+          cp.vat_percent,
           cp.status,
           'unpaid' AS payment_status,
           NULL AS partial_payment_amount,
@@ -911,6 +939,7 @@ function createStore(userDataPath) {
           c.business_type,
           c.date,
           c.amount,
+          c.vat_percent,
           c.status,
           c.payment_status,
           c.partial_payment_amount,
@@ -936,6 +965,7 @@ function createStore(userDataPath) {
           c.business_type,
           a.date,
           a.amount,
+          a.vat_percent,
           a.status,
           a.payment_status,
           a.partial_payment_amount,
@@ -962,6 +992,7 @@ function createStore(userDataPath) {
           c.business_type,
           sd.date,
           sd.amount,
+          sd.vat_percent,
           sd.status,
           sd.payment_status,
           sd.partial_payment_amount,
@@ -988,6 +1019,7 @@ function createStore(userDataPath) {
           c.business_type,
           sd.date,
           sd.amount,
+          sd.vat_percent,
           sd.status,
           sd.payment_status,
           sd.partial_payment_amount,
@@ -1060,7 +1092,8 @@ function migrate(db) {
       number TEXT NOT NULL DEFAULT '',
       date TEXT,
       amount REAL,
-      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent')),
+      vat_percent INTEGER,
+      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent', 'signed', 'annulled')),
       business_type TEXT CHECK (business_type IN ('ooo', 'ip')),
       advance_percent REAL,
       comment TEXT NOT NULL DEFAULT '',
@@ -1075,7 +1108,8 @@ function migrate(db) {
       number TEXT NOT NULL DEFAULT '',
       date TEXT,
       amount REAL,
-      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent')),
+      vat_percent INTEGER,
+      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent', 'signed', 'annulled')),
       payment_status TEXT NOT NULL CHECK (payment_status IN ('paid', 'partial', 'unpaid')),
       partial_payment_amount REAL,
       business_type TEXT CHECK (business_type IN ('ooo', 'ip')),
@@ -1093,7 +1127,8 @@ function migrate(db) {
       number TEXT NOT NULL DEFAULT '',
       date TEXT,
       amount REAL,
-      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent')),
+      vat_percent INTEGER,
+      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent', 'signed', 'annulled')),
       payment_status TEXT NOT NULL CHECK (payment_status IN ('paid', 'partial', 'unpaid')),
       partial_payment_amount REAL,
       advance_percent REAL,
@@ -1110,7 +1145,8 @@ function migrate(db) {
       number TEXT NOT NULL DEFAULT '',
       date TEXT,
       amount REAL,
-      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent')),
+      vat_percent INTEGER,
+      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent', 'signed', 'annulled')),
       payment_status TEXT NOT NULL CHECK (payment_status IN ('paid', 'partial', 'unpaid')),
       partial_payment_amount REAL,
       file_path TEXT,
@@ -1138,6 +1174,10 @@ function migrate(db) {
   addColumnIfMissing(db, "commercial_proposals", "advance_percent", "REAL");
   addColumnIfMissing(db, "contracts", "advance_percent", "REAL");
   addColumnIfMissing(db, "annexes", "advance_percent", "REAL");
+  for (const table of ["commercial_proposals", "contracts", "annexes", "secondary_documents"]) {
+    addColumnIfMissing(db, table, "vat_percent", "INTEGER");
+  }
+  addApprovalStatusesIfNeeded(db, ["commercial_proposals", "contracts", "annexes", "secondary_documents"]);
   if (addColumnIfMissing(db, "annexes", "number", "TEXT NOT NULL DEFAULT ''")) {
     // Before 0.3.3 the ДС number was the global row id; renumber per object.
     backfillAnnexNumbers(db);
@@ -1180,6 +1220,42 @@ function addColumnIfMissing(db, table, column, definition) {
   return false;
 }
 
+// SQLite cannot alter a CHECK constraint, so tables created before the "signed"/"annulled"
+// statuses existed are rebuilt (create new, copy, drop old, rename) with the widened list.
+function addApprovalStatusesIfNeeded(db, tables) {
+  const oldCheck = "'not_sent')";
+  const pending = tables
+    .map((table) => ({ table, sql: db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)?.sql }))
+    .filter(({ sql }) => sql && sql.includes(oldCheck) && !sql.includes("'signed'"));
+  if (pending.length === 0) return;
+
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      for (const { table, sql } of pending) {
+        const tempName = `${table}__new`;
+        const createSql = sql
+          .replace(new RegExp(`^CREATE TABLE\\s+"?${table}"?`), `CREATE TABLE ${tempName}`)
+          .replace(oldCheck, "'not_sent', 'signed', 'annulled')");
+        const indexes = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL").all(table);
+        const sequence = db.prepare("SELECT seq FROM sqlite_sequence WHERE name = ?").get(table);
+        const columns = db.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name).join(", ");
+
+        db.exec(createSql);
+        db.exec(`INSERT INTO ${tempName} (${columns}) SELECT ${columns} FROM ${table}`);
+        db.exec(`DROP TABLE ${table}`);
+        db.exec(`ALTER TABLE ${tempName} RENAME TO ${table}`);
+        for (const index of indexes) db.exec(index.sql);
+        if (sequence) db.prepare("UPDATE sqlite_sequence SET seq = ? WHERE name = ?").run(sequence.seq, table);
+      }
+      const violations = db.pragma("foreign_key_check");
+      if (violations.length > 0) throw new Error("Миграция статусов нарушила связи между таблицами");
+    })();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+}
+
 function rebuildSecondaryDocumentsIfNeeded(db, docTypesSql) {
   const table = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'secondary_documents'").get();
   if (!table || table.sql.includes("commercial_proposal")) return;
@@ -1201,7 +1277,8 @@ function rebuildSecondaryDocumentsIfNeeded(db, docTypesSql) {
       number TEXT NOT NULL DEFAULT '',
       date TEXT,
       amount REAL,
-      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent')),
+      vat_percent INTEGER,
+      status TEXT NOT NULL CHECK (status IN ('na', 'approved', 'pending', 'not_sent', 'signed', 'annulled')),
       payment_status TEXT NOT NULL CHECK (payment_status IN ('paid', 'partial', 'unpaid')),
       partial_payment_amount REAL,
       file_path TEXT,

@@ -364,17 +364,20 @@ function getState() {
   state.commercial_proposals = (state.commercial_proposals || []).map((proposal) => ({
     business_type: null,
     advance_percent: null,
+    vat_percent: null,
     ...proposal,
   }));
   state.contracts = (state.contracts || []).map((contract) => ({
     partial_payment_amount: null,
     business_type: null,
     advance_percent: null,
+    vat_percent: null,
     ...contract,
   }));
   state.annexes = (state.annexes || []).map((annex) => ({
     partial_payment_amount: null,
     advance_percent: null,
+    vat_percent: null,
     number: "",
     ...annex,
   }));
@@ -384,6 +387,7 @@ function getState() {
   state.secondary_documents = (state.secondary_documents || []).map((document) => ({
     number: "",
     partial_payment_amount: null,
+    vat_percent: null,
     ...document,
   }));
   state.objects = (state.objects || []).map((object) => ({
@@ -452,6 +456,14 @@ function normalizePercent(value) {
   return Number.isNaN(number) ? null : number;
 }
 
+function normalizeVat(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const number = Number(value);
+  if (!Number.isInteger(number)) throw new Error("НДС должен быть целым числом");
+  if (number < 0 || number > 100) throw new Error("НДС должен быть от 0 до 100");
+  return number;
+}
+
 function paymentPartialAmount(payload) {
   if (payload.payment_status === "partial") return Number(payload.partial_payment_amount || 0) || null;
   if (payload.payment_status === "paid") return payload.amount === "" ? null : Number(payload.amount) || null;
@@ -511,6 +523,7 @@ function listRegistryDocumentsFromState(state) {
         business_type: proposal.business_type || null,
         date: proposal.date,
         amount: proposal.amount,
+        vat_percent: proposal.vat_percent ?? null,
         status: proposal.status,
         payment_status: "unpaid",
         partial_payment_amount: null,
@@ -536,6 +549,7 @@ function listRegistryDocumentsFromState(state) {
         business_type: contract.business_type || null,
         date: contract.date,
         amount: contract.amount,
+        vat_percent: contract.vat_percent ?? null,
         status: contract.status,
         payment_status: contract.payment_status,
         partial_payment_amount: contract.partial_payment_amount,
@@ -560,6 +574,7 @@ function listRegistryDocumentsFromState(state) {
           business_type: contract.business_type || null,
           date: annex.date,
           amount: annex.amount,
+          vat_percent: annex.vat_percent ?? null,
           status: annex.status,
           payment_status: annex.payment_status,
           partial_payment_amount: annex.partial_payment_amount,
@@ -690,7 +705,7 @@ function makeMockApi() {
     },
     async createCommercialProposal(payload) {
       const state = getState();
-      const proposal = { id: nextId(state), ...payload, created_at: now(), advance_percent: normalizePercent(payload.advance_percent), file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
+      const proposal = { id: nextId(state), ...payload, created_at: now(), advance_percent: normalizePercent(payload.advance_percent), vat_percent: normalizeVat(payload.vat_percent), file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
       state.commercial_proposals.push(proposal);
       cascadeObjectBusinessType(state, proposal.object_id, proposal.business_type);
       setState(state);
@@ -708,6 +723,7 @@ function makeMockApi() {
           status: payload.status,
           business_type: payload.business_type !== undefined ? (payload.business_type || null) : state.commercial_proposals[index].business_type,
           advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : state.commercial_proposals[index].advance_percent,
+          vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : state.commercial_proposals[index].vat_percent,
           comment: payload.comment || "",
           file_path: payload.sourceFilePath ? payload.sourceFilePath : state.commercial_proposals[index].file_path,
           original_filename: payload.sourceFilePath ? payload.original_filename : state.commercial_proposals[index].original_filename,
@@ -740,6 +756,9 @@ function makeMockApi() {
         advance_percent: payload.advance_percent !== undefined && payload.advance_percent !== ""
           ? normalizePercent(payload.advance_percent)
           : proposal.advance_percent ?? null,
+        vat_percent: payload.vat_percent !== undefined && payload.vat_percent !== ""
+          ? normalizeVat(payload.vat_percent)
+          : proposal.vat_percent ?? null,
         comment: payload.comment || proposal.comment || "",
         comment_color: payload.comment_color || "pink",
         file_path: payload.sourceFilePath || null,
@@ -755,6 +774,7 @@ function makeMockApi() {
         doc_type: "commercial_proposal",
         date: proposal.date,
         amount: proposal.amount,
+        vat_percent: proposal.vat_percent ?? null,
         status: proposal.status,
         payment_status: "unpaid",
         partial_payment_amount: null,
@@ -772,6 +792,7 @@ function makeMockApi() {
       const contract = { id: nextId(state), ...payload, created_at: now(), payment_status: "unpaid", partial_payment_amount: null, file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
       contract.business_type = contract.business_type || null;
       contract.advance_percent = normalizePercent(contract.advance_percent);
+      contract.vat_percent = normalizeVat(contract.vat_percent);
       state.contracts.push(contract);
       cascadeObjectBusinessType(state, contract.object_id, contract.business_type);
       setState(state);
@@ -789,6 +810,7 @@ function makeMockApi() {
           status: payload.status,
           business_type: payload.business_type !== undefined ? (payload.business_type || null) : state.contracts[index].business_type,
           advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : state.contracts[index].advance_percent,
+          vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : state.contracts[index].vat_percent,
           comment: payload.comment || "",
           comment_color: payload.comment_color || "pink",
           file_path: payload.sourceFilePath ? payload.sourceFilePath : state.contracts[index].file_path,
@@ -817,6 +839,7 @@ function makeMockApi() {
       const number = String(payload.number ?? "").trim() || nextAnnexNumber(state, annexObjectId(state, { contract_id: Number(payload.contract_id) }));
       const annex = { id: nextId(state), ...payload, number, created_at: now(), payment_status: "unpaid", partial_payment_amount: null, file_path: payload.sourceFilePath || null, original_filename: payload.original_filename || null };
       annex.advance_percent = normalizePercent(annex.advance_percent);
+      annex.vat_percent = normalizeVat(annex.vat_percent);
       state.annexes.push(annex);
       setState(state);
       return withComputedPayment(state, annex, "annex");
@@ -832,6 +855,7 @@ function makeMockApi() {
           amount: payload.amount === "" ? null : Number(payload.amount),
           status: payload.status,
           advance_percent: payload.advance_percent !== undefined ? normalizePercent(payload.advance_percent) : state.annexes[index].advance_percent,
+          vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : state.annexes[index].vat_percent,
           file_path: payload.sourceFilePath ? payload.sourceFilePath : state.annexes[index].file_path,
           original_filename: payload.sourceFilePath ? payload.original_filename : state.annexes[index].original_filename,
         };
@@ -854,6 +878,7 @@ function makeMockApi() {
         ...payload,
         number: payload.number || "",
         partial_payment_amount: paymentPartialAmount(payload),
+        vat_percent: normalizeVat(payload.vat_percent),
         file_path: payload.sourceFilePath || null,
         original_filename: payload.original_filename || "demo-document.pdf",
         created_at: now(),
@@ -875,6 +900,7 @@ function makeMockApi() {
           status: payload.status,
           payment_status: payload.payment_status,
           partial_payment_amount: paymentPartialAmount(payload),
+          vat_percent: payload.vat_percent !== undefined ? normalizeVat(payload.vat_percent) : state.secondary_documents[index].vat_percent,
           file_path: payload.sourceFilePath ? payload.sourceFilePath : state.secondary_documents[index].file_path,
           original_filename: payload.sourceFilePath ? payload.original_filename : state.secondary_documents[index].original_filename,
         };
@@ -899,6 +925,9 @@ function makeMockApi() {
     },
     async selectFile() {
       return { sourceFilePath: "demo-document.pdf", originalFilename: "demo-document.pdf" };
+    },
+    getPathForFile(file) {
+      return file.name;
     },
     async openFile() {
       return { ok: false, message: "Открытие файлов доступно в Electron-приложении" };
